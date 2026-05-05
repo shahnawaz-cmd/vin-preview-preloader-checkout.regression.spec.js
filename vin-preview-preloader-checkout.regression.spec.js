@@ -384,6 +384,37 @@ test('Priority 3 - LP: detect license_preview_page and run LP block', async ({ b
 });
 
 
+// Randomize last 4 digits of classic numeric VIN
+function randomClassicVin() {
+  const base = '22387010';
+  const suffix = String(Math.floor(Math.random() * 9000) + 1000);
+  return base + suffix;
+}
+
+// ─── Helper: Trigger Exit Intent ─────────────────────────────────────────────
+
+async function triggerExitIntent(page) {
+  // Simulate real user moving mouse slowly toward the URL bar
+  await page.mouse.move(400, 600, { steps: 5 });
+  await page.waitForTimeout(500);
+  await page.mouse.move(400, 300, { steps: 10 });
+  await page.waitForTimeout(500);
+  await page.mouse.move(400, 50, { steps: 20 });
+  await page.waitForTimeout(300);
+  await page.mouse.move(400, 0, { steps: 10 });
+  await page.waitForTimeout(500);
+
+  // Dispatch mouseleave as cursor exits viewport toward URL bar
+  await page.evaluate(() => {
+    const opts = { bubbles: true, cancelable: true, clientX: 400, clientY: -1 };
+    document.dispatchEvent(new MouseEvent('mouseleave', opts));
+    document.dispatchEvent(new MouseEvent('mouseout', opts));
+    window.dispatchEvent(new MouseEvent('mouseleave', opts));
+  });
+
+  await page.waitForTimeout(2000);
+}
+
 // ─── P23 Specific Cases ───────────────────────────────────────────────────────
 
 test.describe('P23 Cases', () => {
@@ -467,6 +498,181 @@ test.describe('P23 Cases', () => {
     console.log(`✅ Default plan price matches: ${planPrice} = $${pagePrice}`);
   });
 
+});
+
+test('P23 Case 4 - Exit intent popup appears on preview page', async ({ browser }) => {
+  // Fresh context — exit intent only fires once per session
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+
+  await page.goto(SITE_URL, { waitUntil: 'networkidle' });
+  await page.goto(getVhrUrl(randomVin()), { waitUntil: 'networkidle' });
+
+  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+  if (raw?.match(/preview(\d+)/)?.[1] !== '23') { await ctx.close(); test.skip(); return; }
+  console.log(`🔍 Confirmed preview_page: ${raw}`);
+
+  await page.waitForTimeout(3000);
+  await triggerExitIntent(page);
+
+  // Selector from codegen
+  const popup = page.locator('div').filter({ hasText: /Hey, before you leave take/i }).nth(3);
+  await expect(popup).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('text=15% OFF')).toBeVisible({ timeout: 5000 });
+  await expect(page.getByRole('button', { name: 'Click here to redeem instantly' })).toBeVisible({ timeout: 5000 });
+  await page.getByRole('button', { name: 'Click here to redeem instantly' }).click();
+  console.log('✅ Clicked CTA button');
+
+  await page.waitForURL(/offer=/, { timeout: 15000 });
+  expect(page.url()).toContain('offer=');
+  console.log(`✅ Redirected to offer URL: ${page.url()}`);
+
+  await page.screenshot({ path: `${EVIDENCE_DIR}\\p23-exit-intent-popup.png`, fullPage: true });
+  console.log('✅ Exit intent popup appeared on P23 preview page');
+  await ctx.close();
+});
+
+test('P23 Case 5 - Classic mapped VIN modification (update YMM using dropdown)', async ({ browser }) => {
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+
+  const vin = randomClassicVin();
+  const CLASSIC_URL = `https://developtestsite.com/members/vin-check/preview?type=vhr&utm_details=&vin=${vin}&wpPage=homepage&landing=normal`;
+  console.log(`🔑 Classic VIN: ${vin}`);
+
+  await page.goto(SITE_URL, { waitUntil: 'networkidle' });
+  await page.goto(CLASSIC_URL, { waitUntil: 'networkidle' });
+
+  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+  if (raw?.match(/preview(\d+)/)?.[1] !== '23') { await ctx.close(); test.skip(); return; }
+  console.log(`🔍 Confirmed preview_page: ${raw}`);
+
+  // Intercept API call
+  let apiPayload, apiStatus, apiResponse;
+  page.on('request', req => {
+    if (req.url().includes('api-cwa/update-classic-decode')) {
+      apiPayload = req.postData();
+      console.log(`📤 API Request Payload: ${apiPayload}`);
+    }
+  });
+  page.on('response', async res => {
+    if (res.url().includes('api-cwa/update-classic-decode')) {
+      apiStatus = res.status();
+      apiResponse = await res.json().catch(() => res.text());
+      console.log(`📥 API Status: ${apiStatus}`);
+      console.log(`📥 API Response: ${JSON.stringify(apiResponse)}`);
+    }
+  });
+
+  // Click "Click here to update"
+  await page.getByRole('button', { name: 'Click here to update' }).click();
+
+  // Click "Update Year, Make and Model"
+  await page.getByRole('button', { name: 'Update Year, Make and Model' }).click();
+
+  // Select Year → Make → Model → Trim
+  await page.getByLabel('Year').click();
+  await page.getByLabel('1961').click();
+  await page.getByLabel('Make').click();
+  await page.getByLabel('AJS').click();
+  await page.getByLabel('Model').click();
+  await page.getByText('Model 16 350ms').click();
+  await page.getByLabel('Trim').click();
+  await page.getByText('Base', { exact: true }).click();
+  await page.screenshot({ path: `${EVIDENCE_DIR}\\p23-case5-ymm-selected.png`, fullPage: true });
+
+  // Continue → Confirm → Submit
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'Confirm Selection' }).click();
+  await page.getByRole('button', { name: 'Submit' }).click();
+  await page.waitForLoadState('networkidle');
+  console.log(`📍 URL after Submit: ${page.url()}`);
+
+  // Verify URL contains cv= param after submission
+  await page.waitForURL(/cv=/, { timeout: 30000 });
+  expect(page.url()).toContain('cv=');
+  console.log(`✅ Redirected to mapped VIN URL: ${page.url()}`);
+
+  // Assert API was called with correct status
+  expect(apiStatus).toBe(200);
+  console.log(`✅ API update-classic-decode responded with status: ${apiStatus}`);
+
+  await page.screenshot({ path: `${EVIDENCE_DIR}\\p23-case5-ymm-updated.png`, fullPage: true });
+  console.log('✅ Classic VIN YMM update completed successfully');
+  await ctx.close();
+});
+
+test('P23 Case 6 - Update classic VIN (modify data using manual input)', async ({ browser }) => {
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+
+  const vin = randomClassicVin();
+  const CLASSIC_URL = `https://developtestsite.com/members/vin-check/preview?type=vhr&utm_details=&vin=${vin}&wpPage=homepage&landing=normal`;
+  console.log(`🔑 Classic VIN: ${vin}`);
+
+  await page.goto(SITE_URL, { waitUntil: 'networkidle' });
+  await page.goto(CLASSIC_URL, { waitUntil: 'networkidle' });
+
+  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+  if (raw?.match(/preview(\d+)/)?.[1] !== '23') { await ctx.close(); test.skip(); return; }
+  console.log(`🔍 Confirmed preview_page: ${raw}`);
+
+  // Intercept API call
+  let apiPayload, apiStatus, apiResponse;
+  page.on('request', req => {
+    if (req.url().includes('api-cwa/update-classic-decode')) {
+      apiPayload = req.postData();
+      console.log(`📤 API Request Payload: ${apiPayload}`);
+    }
+  });
+  page.on('response', async res => {
+    if (res.url().includes('api-cwa/update-classic-decode')) {
+      apiStatus = res.status();
+      apiResponse = await res.json().catch(() => res.text());
+      console.log(`📥 API Status: ${apiStatus}`);
+      console.log(`📥 API Response: ${JSON.stringify(apiResponse)}`);
+    }
+  });
+
+  await page.getByRole('button', { name: 'Click here to update' }).click();
+  await page.getByRole('button', { name: 'Update Year, Make and Model' }).click();
+
+  // Switch to manual input
+  await page.getByRole('button', { name: 'Click here' }).click();
+
+  // Fill manual fields
+  await page.getByPlaceholder('Enter year').fill('1960');
+  await page.getByPlaceholder('Enter year').press('Tab');
+  await page.getByPlaceholder('Enter make').fill('Ford');
+  await page.getByPlaceholder('Enter make').press('Tab');
+  await page.getByPlaceholder('Enter model').fill('F-250');
+  await page.getByPlaceholder('Enter model').press('Tab');
+  await page.getByPlaceholder('Enter engine (e.g., V8,').fill('V8');
+  await page.getByPlaceholder('Enter engine (e.g., V8,').press('Tab');
+  await page.getByPlaceholder('Enter transmission type').fill('Auto');
+  await page.getByPlaceholder('Enter transmission type').press('Tab');
+  await page.getByPlaceholder('Enter number of doors').fill('5');
+  await page.getByPlaceholder('Enter number of doors').press('Tab');
+  await page.getByPlaceholder('Enter drive type (e.g., RWD,').fill('AWD');
+  await page.screenshot({ path: `${EVIDENCE_DIR}\\p23-case6-manual-input.png`, fullPage: true });
+  console.log('✅ Manual fields filled');
+
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'Submit' }).click();
+  await page.waitForLoadState('networkidle');
+  console.log(`📍 URL after Submit: ${page.url()}`);
+
+  await page.waitForURL(/cv=/, { timeout: 30000 });
+  expect(page.url()).toContain('cv=');
+  console.log(`✅ Redirected to mapped VIN URL: ${page.url()}`);
+
+  // Assert API was called with correct status
+  expect(apiStatus).toBe(200);
+  console.log(`✅ API update-classic-decode responded with status: ${apiStatus}`);
+
+  await page.screenshot({ path: `${EVIDENCE_DIR}\\p23-case6-manual-updated.png`, fullPage: true });
+  console.log('✅ Classic VIN manual update completed successfully');
+  await ctx.close();
 });
 
 test('Summary - Detected Preview Pages', async () => {  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
