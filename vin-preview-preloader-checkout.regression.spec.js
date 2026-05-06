@@ -634,6 +634,100 @@ test('P28 Case 5 - Plan selection, info/error messages and UVC upsell hide', asy
   await ctx.close();
 });
 
+// ─── P23 Case 7 ───────────────────────────────────────────────────────────────
+
+test('P23 Case 7 - Email validation, maybe later API, and phone analytics flow', async ({ browser }) => {
+  const ctx  = await browser.newContext();
+  const page = await ctx.newPage();
+
+  const vin = randomVin();
+  await page.goto(getVhrUrl(vin), { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+
+  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+  if (raw?.match(/preview(\d+)/)?.[1] !== '23') { await ctx.close(); test.skip(); return; }
+  console.log(`🔍 Confirmed preview_page: ${raw}`);
+
+  // ── Step 2: Open email popup ──────────────────────────────────────────────
+  await page.getByRole('button', { name: /access records/i }).first().click();
+  const emailInput = page.locator('input[type="email"]').first();
+  await emailInput.waitFor({ state: 'visible', timeout: 10000 });
+  console.log('✅ Email popup opened');
+
+  // ── Step 3 & 4: Enter invalid email → expect validation error ─────────────
+  await emailInput.fill('invalidemail');
+  await page.getByRole('button', { name: /proceed to checkout/i }).click();
+  const errorMsg = page.locator('text=/please enter a valid email/i');
+  await expect(errorMsg).toBeVisible({ timeout: 5000 });
+  console.log('✅ Validation error shown for invalid email');
+
+  // ── Step 5: Enter valid email → click Maybe Later → assert API call ───────
+  await emailInput.clear();
+  const validEmail = `test_${Date.now()}@example.com`;
+  await emailInput.fill(validEmail);
+  console.log(`📧 Valid email: ${validEmail}`);
+
+  let maybeLaterCalled = false;
+  let maybeLaterPayload;
+  page.on('request', req => {
+    if (req.url().includes('landing/index_collection')) {
+      maybeLaterCalled = true;
+      maybeLaterPayload = req.postData();
+      console.log(`📤 Maybe Later API called: ${req.url()}`);
+      console.log(`📤 Maybe Later payload: ${maybeLaterPayload}`);
+    }
+  });
+
+  await page.getByRole('button', { name: /maybe later/i }).click();
+  await page.waitForTimeout(2000);
+  expect(maybeLaterCalled).toBe(true);
+  expect(maybeLaterPayload).toBeTruthy();
+  console.log('✅ landing/index_collection API called on Maybe Later');
+
+  // ── Step 6: Popup closed → reopen → fill valid email + phone → analytics API
+  await expect(emailInput).not.toBeVisible({ timeout: 5000 });
+  console.log('✅ Email popup closed after Maybe Later');
+
+  await page.getByRole('button', { name: /access records/i }).first().click();
+  const emailInput2 = page.locator('input[type="email"]').first();
+  await emailInput2.waitFor({ state: 'visible', timeout: 10000 });
+
+  const uniqueEmail = `test_${Date.now()}_u@example.com`;
+  await emailInput2.fill(uniqueEmail);
+  console.log(`📧 Unique email: ${uniqueEmail}`);
+
+  const phoneInput = page.locator('input[type="tel"], input[placeholder*="phone" i], input[placeholder*="Phone" i]').first();
+  await phoneInput.waitFor({ state: 'visible', timeout: 10000 });
+
+  let analyticsPayload;
+  page.on('request', req => {
+    if (req.url().includes('api-cwa/create-preview-analytics')) {
+      analyticsPayload = req.postData();
+      console.log(`📤 Analytics API payload: ${analyticsPayload}`);
+    }
+  });
+
+  await phoneInput.click();
+  await phoneInput.fill('5551234567');
+
+  // Click Proceed to Checkout — this triggers create-preview-analytics
+  const analyticsResponsePromise = page.waitForResponse(
+    res => res.url().includes('api-cwa/create-preview-analytics'),
+    { timeout: 15000 }
+  );
+  await page.getByRole('button', { name: /proceed to checkout/i }).click();
+  const analyticsRes = await analyticsResponsePromise.catch(() => null);
+  const analyticsResponse = analyticsRes ? await analyticsRes.json().catch(() => analyticsRes.text()) : null;
+  console.log(`📥 Analytics API response: ${JSON.stringify(analyticsResponse)}`);
+
+  expect(analyticsPayload).toBeTruthy();
+  expect(analyticsResponse).toBeTruthy();
+  console.log('✅ create-preview-analytics API called with payload and response captured');
+
+  await page.screenshot({ path: `${EVIDENCE_DIR}\\p23-case7-analytics.png`, fullPage: true });
+  await ctx.close();
+});
+
 // ─── Global Cases ─────────────────────────────────────────────────────────────
 
 test('Global Case 1 - Lower to higher coupon swap logic (cookie validation)', async ({ browser }) => {
