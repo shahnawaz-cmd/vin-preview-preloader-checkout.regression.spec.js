@@ -725,6 +725,56 @@ test('P28 Case 6 - Email validation, maybe later API, and phone analytics flow',
   await ctx.close();
 });
 
+// ─── P28 Case 7 ───────────────────────────────────────────────────────────────
+
+test('P28 Case 7 - Verify reveal record section (internal linking) and vehicle media image section', async ({ browser }) => {
+  const ctx  = await browser.newContext();
+  const page = await ctx.newPage();
+
+  await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+
+  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+  if (!raw?.includes('28')) { await ctx.close(); test.skip(); return; }
+  console.log(`🔍 Confirmed preview_page: ${raw}`);
+
+  // ── Reveal record section: click each record link and close ───────────────
+  const recordLinks = page.locator('.text-lg');
+  await recordLinks.first().waitFor({ state: 'visible', timeout: 15000 });
+  const count = await recordLinks.count();
+  console.log(`📋 Found ${count} record links`);
+
+  for (let i = 0; i < Math.min(count, 5); i++) {
+    await recordLinks.nth(i).click();
+    const closeBtn = page.getByRole('button', { name: 'Close' });
+    await closeBtn.waitFor({ state: 'visible', timeout: 8000 });
+    await closeBtn.click();
+    console.log(`✅ Record link ${i + 1} opened and closed`);
+  }
+
+  // ── Vehicle media image section: scroll to top, click left & right arrows ──
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(500);
+
+  // Carousel only appears if vehicle has images — check first
+  const nextBtn = page.locator('div').filter({ hasText: /^\d+ \/ \d+$/ }).getByRole('button').nth(1);
+  const prevBtn = page.locator('div').filter({ hasText: /^\d+ \/ \d+$/ }).getByRole('button').first();
+
+  const carouselVisible = await nextBtn.isVisible().catch(() => false);
+  if (carouselVisible) {
+    await nextBtn.click();
+    console.log('✅ Clicked next (right) arrow on vehicle media');
+    await prevBtn.click();
+    console.log('✅ Clicked prev (left) arrow on vehicle media');
+  } else {
+    console.log('ℹ️ No vehicle images for this VIN — carousel not present, skipping media section');
+  }
+
+  await page.screenshot({ path: `${EVIDENCE_DIR}\\p28-case7-media-section.png`, fullPage: true });
+  console.log('✅ Reveal record section and vehicle media image section verified');
+  await ctx.close();
+});
+
 // ─── P23 Case 7 ───────────────────────────────────────────────────────────────
 
 test('P23 Case 7 - Email validation, maybe later API, and phone analytics flow', async ({ browser }) => {
@@ -849,6 +899,22 @@ test('Global Case 1 - Lower to higher coupon swap logic (cookie validation)', as
   console.log(`✅ Step 4 — coupon=${step4c.value}, prev_coupon=${step4p.value}`);
 
   console.log('✅ Coupon swap logic verified');
+  await ctx.close();
+});
+
+test('Global Case 2 - ref=ads param sets cookie correctly', async ({ browser }) => {
+  const ctx  = await browser.newContext();
+  const page = await ctx.newPage();
+  const getCookie = async (name) => (await ctx.cookies()).find(c => c.name === name) ?? null;
+
+  await page.goto('https://developtestsite.com/?ref=ads', { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(2000);
+
+  const refCookie = await getCookie('ref');
+  expect(refCookie).not.toBeNull();
+  expect(refCookie.value).toBe('ads');
+  console.log(`✅ ref cookie set: ${refCookie.name}=${refCookie.value}`);
+
   await ctx.close();
 });
 
