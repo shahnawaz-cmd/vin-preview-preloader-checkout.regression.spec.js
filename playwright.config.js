@@ -1,7 +1,7 @@
 const { defineConfig } = require('@playwright/test');
 
 module.exports = defineConfig({
-  testMatch: '**/*.regression.spec.js',
+  testMatch: '**/*.spec.js',
   timeout: 180000,
   retries: 0,
   reporter: [['html', { outputFolder: 'playwright-report', open: 'never' }]],

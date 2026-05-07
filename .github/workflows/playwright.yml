@@ -19,6 +19,9 @@ jobs:
       run: npx playwright install --with-deps
     - name: Run Playwright tests
       run: npx playwright test
+    - name: List files (Debug)
+      if: always()
+      run: ls -R
     - uses: actions/upload-artifact@v7
       if: always()
       with:
