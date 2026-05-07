@@ -376,6 +376,30 @@ test.describe('P23 Cases', () => {
     expect(String(planPrice)).toContain(pagePrice);
     console.log(`✅ Default plan price matches: ${planPrice} = $${pagePrice}`);
   });
+
+  test('P23 Case 8 - Window Sticker checkbox dynamic text and price', async () => {
+    if (sharedPage.isClosed()) { test.skip(); return; }
+    await sharedPage.reload({ waitUntil: 'domcontentloaded' });
+
+    // Wait for site settings to be loaded
+    await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').sticker_preview_page_checkbox_price, { timeout: 15000 });
+
+    const settings = await sharedPage.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}'));
+    const expectedText = settings.sticker_preview_page_checkbox_text;
+    const expectedPrice = settings.sticker_preview_page_checkbox_price;
+
+    console.log(`🔍 Expected Sticker Settings - Text: "${expectedText}", Price: "${expectedPrice}"`);
+
+    const label = sharedPage.locator('label[for="landing_decal"]');
+    await label.waitFor({ state: 'visible', timeout: 10000 });
+
+    const actualText = await label.innerText();
+    console.log(`🔍 Actual Label Text: "${actualText.replace(/\n/g, ' ')}"`);
+
+    expect(actualText).toContain(expectedText);
+    expect(actualText).toContain(expectedPrice);
+    console.log('✅ Window sticker label text and price match site_settings dynamically');
+  });
 });
 
 
