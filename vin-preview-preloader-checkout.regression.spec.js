@@ -26,9 +26,8 @@ function getClassicUrl(vin) { return getVhrUrl(vin); }
 const spoofWebdriver = () => { Object.defineProperty(navigator, 'webdriver', { get: () => false }); };
 
 // ─── Shared: checkout flow ────────────────────────────────────────────────────
-async function runCheckoutFlow(page, { screenshotPrefix, clickFlow }) {
-  await clickFlow(page);
-  const startTime = Date.now();
+async function runCheckoutFlow(page, { screenshotPrefix, clickFlow, t0 }) {
+  const t1 = await clickFlow(page);
 
   const preloader = page.locator('text=Preparing Your Checkout');
   await expect(preloader).toBeVisible({ timeout: 15000 });
@@ -36,14 +35,24 @@ async function runCheckoutFlow(page, { screenshotPrefix, clickFlow }) {
   console.log('✅ Preloader appeared');
 
   await page.waitForURL('**/members/checkout**', { timeout: 60000, waitUntil: 'domcontentloaded' });
-  const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
-  console.log(`⏱ Preloader → Checkout: ${elapsed}s`);
+  const t2 = Date.now();
+  const preloaderElapsed = ((t2 - t1) / 1000).toFixed(2);
+  console.log(`⏱ Preloader → Checkout: ${preloaderElapsed}s`);
+
+  if (t0) {
+    const totalElapsed = ((t2 - t0) / 1000).toFixed(2);
+    console.log(`⏱ Preview → Checkout Total: ${totalElapsed}s`);
+    if (screenshotPrefix.startsWith('p23')) {
+      test.info().annotations.push({ type: 'Preview->Checkout Total Time', description: totalElapsed + 's' });
+      test.info().annotations.push({ type: 'Preloader->Checkout Time', description: preloaderElapsed + 's' });
+    }
+  }
 
   await expect(page.locator(':text("Choose payment method"), :text("Enter your card details")').first()).toBeVisible({ timeout: 30000 });
   await page.screenshot({ path: `${EVIDENCE_DIR}\\${screenshotPrefix}-04-checkout.png`, fullPage: true });
   console.log('✅ Checkout page loaded');
 
-  expect(parseFloat(elapsed)).toBeLessThan(30);
+  expect(parseFloat(preloaderElapsed)).toBeLessThan(30);
 }
 
 // ─── DRY clickFlow: Access Records → email → Proceed to Checkout ──────────────
@@ -58,8 +67,10 @@ async function clickFlowAccessRecords(page, prefix) {
   console.log(`📧 Email: ${email}`);
   await page.screenshot({ path: `${EVIDENCE_DIR}\\${prefix}-02-popup.png`, fullPage: true });
 
+  const t1 = Date.now();
   await page.getByRole('button', { name: /proceed to checkout/i }).click();
   console.log('✅ Clicked Proceed to Checkout');
+  return t1;
 }
 
 // ─── DRY clickFlow: Proceed to Checkout → email → Create an account ───────────
@@ -74,8 +85,10 @@ async function clickFlowCreateAccount(page, prefix) {
   console.log(`📧 Email: ${email}`);
   await page.screenshot({ path: `${EVIDENCE_DIR}\\${prefix}-02-popup.png`, fullPage: true });
 
+  const t1 = Date.now();
   await page.getByRole('button', { name: /create an account/i }).click();
   console.log('✅ Clicked Create an account');
+  return t1;
 }
 
 // ─── DRY: classic VIN test setup ─────────────────────────────────────────────
@@ -151,22 +164,25 @@ async function assertExitIntentPopup(page, screenshotName) {
 // ─── Preview 23 ───────────────────────────────────────────────────────────────
 const Preview_23 = {
   async vhr(page, url) {
+    const t0 = Date.now();
     console.log('▶ [P23 - Priority 1 VHR]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.screenshot({ path: `${EVIDENCE_DIR}\\p23-vhr-01-preview.png`, fullPage: true });
-    await runCheckoutFlow(page, { screenshotPrefix: 'p23-vhr', clickFlow: p => clickFlowAccessRecords(p, 'p23-vhr') });
+    await runCheckoutFlow(page, { screenshotPrefix: 'p23-vhr', clickFlow: p => clickFlowAccessRecords(p, 'p23-vhr'), t0 });
   },
   async ws(page, url) {
+    const t0 = Date.now();
     console.log('▶ [P23 - Priority 2 WS]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.screenshot({ path: `${EVIDENCE_DIR}\\p23-ws-01-preview.png`, fullPage: true });
-    await runCheckoutFlow(page, { screenshotPrefix: 'p23-ws', clickFlow: p => clickFlowAccessRecords(p, 'p23-ws') });
+    await runCheckoutFlow(page, { screenshotPrefix: 'p23-ws', clickFlow: p => clickFlowAccessRecords(p, 'p23-ws'), t0 });
   },
   async lp(page, url) {
+    const t0 = Date.now();
     console.log('▶ [P23 - Priority 3 LP]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.screenshot({ path: `${EVIDENCE_DIR}\\p23-lp-01-preview.png`, fullPage: true });
-    await runCheckoutFlow(page, { screenshotPrefix: 'p23-lp', clickFlow: p => clickFlowAccessRecords(p, 'p23-lp') });
+    await runCheckoutFlow(page, { screenshotPrefix: 'p23-lp', clickFlow: p => clickFlowAccessRecords(p, 'p23-lp'), t0 });
   },
 };
 
