@@ -3,7 +3,7 @@ const path = require('path');
 const fs   = require('fs');
 
 const BASE_VIN     = '1FTFW1ET2DFD78356';
-const EVIDENCE_DIR = path.join(__dirname, '..', 'test-results', 'preloader-preview-to-checkout');
+const EVIDENCE_DIR = path.join(__dirname, 'test-results', 'preloader-preview-to-checkout');
 const SUMMARY_FILE = path.join(__dirname, 'detected-pages.json');
 
 function randomVin() {
@@ -31,7 +31,7 @@ async function runCheckoutFlow(page, { screenshotPrefix, clickFlow, t0 }) {
 
   const preloader = page.locator('text=Preparing Your Checkout');
   await expect(preloader).toBeVisible({ timeout: 15000 });
-  await page.screenshot({ path: `${EVIDENCE_DIR}\\${screenshotPrefix}-03-preloader.png`, fullPage: true });
+  await page.screenshot({ path: `${EVIDENCE_DIR}/${screenshotPrefix}-03-preloader.png`, fullPage: true });
   console.log('✅ Preloader appeared');
 
   await page.waitForURL('**/members/checkout**', { timeout: 60000, waitUntil: 'domcontentloaded' });
@@ -49,7 +49,7 @@ async function runCheckoutFlow(page, { screenshotPrefix, clickFlow, t0 }) {
   }
 
   await expect(page.locator(':text("Choose payment method"), :text("Enter your card details")').first()).toBeVisible({ timeout: 30000 });
-  await page.screenshot({ path: `${EVIDENCE_DIR}\\${screenshotPrefix}-04-checkout.png`, fullPage: true });
+  await page.screenshot({ path: `${EVIDENCE_DIR}/${screenshotPrefix}-04-checkout.png`, fullPage: true });
   console.log('✅ Checkout page loaded');
 
   expect(parseFloat(preloaderElapsed)).toBeLessThan(30);
@@ -65,7 +65,7 @@ async function clickFlowAccessRecords(page, prefix) {
   const email = `test_${Date.now()}@example.com`;
   await emailInput.fill(email);
   console.log(`📧 Email: ${email}`);
-  await page.screenshot({ path: `${EVIDENCE_DIR}\\${prefix}-02-popup.png`, fullPage: true });
+  await page.screenshot({ path: `${EVIDENCE_DIR}/${prefix}-02-popup.png`, fullPage: true });
 
   const t1 = Date.now();
   await page.getByRole('button', { name: /proceed to checkout/i }).click();
@@ -83,7 +83,7 @@ async function clickFlowCreateAccount(page, prefix) {
   const email = `test_${Date.now()}@example.com`;
   await emailInput.fill(email);
   console.log(`📧 Email: ${email}`);
-  await page.screenshot({ path: `${EVIDENCE_DIR}\\${prefix}-02-popup.png`, fullPage: true });
+  await page.screenshot({ path: `${EVIDENCE_DIR}/${prefix}-02-popup.png`, fullPage: true });
 
   const t1 = Date.now();
   await page.getByRole('button', { name: /create an account/i }).click();
@@ -157,7 +157,7 @@ async function assertExitIntentPopup(page, screenshotName) {
   await page.waitForURL(/offer=/, { timeout: 15000 });
   expect(page.url()).toContain('offer=');
   console.log(`✅ Redirected to offer URL: ${page.url()}`);
-  if (screenshotName) await page.screenshot({ path: `${EVIDENCE_DIR}\\${screenshotName}`, fullPage: true });
+  if (screenshotName) await page.screenshot({ path: `${EVIDENCE_DIR}/${screenshotName}`, fullPage: true });
 }
 
 
@@ -167,21 +167,21 @@ const Preview_23 = {
     const t0 = Date.now();
     console.log('▶ [P23 - Priority 1 VHR]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
-    await page.screenshot({ path: `${EVIDENCE_DIR}\\p23-vhr-01-preview.png`, fullPage: true });
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p23-vhr-01-preview.png`, fullPage: true });
     await runCheckoutFlow(page, { screenshotPrefix: 'p23-vhr', clickFlow: p => clickFlowAccessRecords(p, 'p23-vhr'), t0 });
   },
   async ws(page, url) {
     const t0 = Date.now();
     console.log('▶ [P23 - Priority 2 WS]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
-    await page.screenshot({ path: `${EVIDENCE_DIR}\\p23-ws-01-preview.png`, fullPage: true });
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p23-ws-01-preview.png`, fullPage: true });
     await runCheckoutFlow(page, { screenshotPrefix: 'p23-ws', clickFlow: p => clickFlowAccessRecords(p, 'p23-ws'), t0 });
   },
   async lp(page, url) {
     const t0 = Date.now();
     console.log('▶ [P23 - Priority 3 LP]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
-    await page.screenshot({ path: `${EVIDENCE_DIR}\\p23-lp-01-preview.png`, fullPage: true });
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p23-lp-01-preview.png`, fullPage: true });
     await runCheckoutFlow(page, { screenshotPrefix: 'p23-lp', clickFlow: p => clickFlowAccessRecords(p, 'p23-lp'), t0 });
   },
 };
@@ -191,19 +191,19 @@ const Preview_27 = {
   async vhr(page, url) {
     console.log('▶ [P27 - Priority 1 VHR]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
-    await page.screenshot({ path: `${EVIDENCE_DIR}\\p27-vhr-01-preview.png`, fullPage: true });
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p27-vhr-01-preview.png`, fullPage: true });
     await runCheckoutFlow(page, { screenshotPrefix: 'p27-vhr', clickFlow: p => clickFlowCreateAccount(p, 'p27-vhr') });
   },
   async ws(page, url) {
     console.log('▶ [P27 - Priority 2 WS]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
-    await page.screenshot({ path: `${EVIDENCE_DIR}\\p27-ws-01-preview.png`, fullPage: true });
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p27-ws-01-preview.png`, fullPage: true });
     await runCheckoutFlow(page, { screenshotPrefix: 'p27-ws', clickFlow: p => clickFlowCreateAccount(p, 'p27-ws') });
   },
   async lp(page, url) {
     console.log('▶ [P27 - Priority 3 LP]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
-    await page.screenshot({ path: `${EVIDENCE_DIR}\\p27-lp-01-preview.png`, fullPage: true });
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p27-lp-01-preview.png`, fullPage: true });
     await runCheckoutFlow(page, { screenshotPrefix: 'p27-lp', clickFlow: p => clickFlowCreateAccount(p, 'p27-lp') });
   },
 };
@@ -213,19 +213,19 @@ const Preview_28 = {
   async vhr(page, url) {
     console.log('▶ [P28 - Priority 1 VHR]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
-    await page.screenshot({ path: `${EVIDENCE_DIR}\\p28-vhr-01-preview.png`, fullPage: true });
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p28-vhr-01-preview.png`, fullPage: true });
     await runCheckoutFlow(page, { screenshotPrefix: 'p28-vhr', clickFlow: p => clickFlowAccessRecords(p, 'p28-vhr') });
   },
   async ws(page, url) {
     console.log('▶ [P28 - Priority 2 WS]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
-    await page.screenshot({ path: `${EVIDENCE_DIR}\\p28-ws-01-preview.png`, fullPage: true });
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p28-ws-01-preview.png`, fullPage: true });
     await runCheckoutFlow(page, { screenshotPrefix: 'p28-ws', clickFlow: p => clickFlowAccessRecords(p, 'p28-ws') });
   },
   async lp(page, url) {
     console.log('▶ [P28 - Priority 3 LP]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
-    await page.screenshot({ path: `${EVIDENCE_DIR}\\p28-lp-01-preview.png`, fullPage: true });
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p28-lp-01-preview.png`, fullPage: true });
     await runCheckoutFlow(page, { screenshotPrefix: 'p28-lp', clickFlow: p => clickFlowAccessRecords(p, 'p28-lp') });
   },
 };
@@ -453,7 +453,7 @@ test('P23 Case 5 - Classic mapped VIN modification (update YMM using dropdown)',
   await page.getByText('Model 16 350ms').click();
   await page.getByLabel('Trim').click();
   await page.getByText('Base', { exact: true }).click();
-  await page.screenshot({ path: `${EVIDENCE_DIR}\\p23-case5-ymm-selected.png`, fullPage: true });
+  await page.screenshot({ path: `${EVIDENCE_DIR}/p23-case5-ymm-selected.png`, fullPage: true });
 
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByRole('button', { name: 'Confirm Selection' }).click();
@@ -463,7 +463,7 @@ test('P23 Case 5 - Classic mapped VIN modification (update YMM using dropdown)',
   expect(page.url()).toContain('cv=');
   expect(getApiStatus()).toBe(200);
   console.log(`✅ API 200 & redirected: ${page.url()}`);
-  await page.screenshot({ path: `${EVIDENCE_DIR}\\p23-case5-ymm-updated.png`, fullPage: true });
+  await page.screenshot({ path: `${EVIDENCE_DIR}/p23-case5-ymm-updated.png`, fullPage: true });
   await ctx.close();
 });
 
@@ -491,7 +491,7 @@ test('P23 Case 6 - Update classic VIN (modify data using manual input)', async (
   await page.getByPlaceholder('Enter number of doors').fill('5');
   await page.getByPlaceholder('Enter number of doors').press('Tab');
   await page.getByPlaceholder('Enter drive type (e.g., RWD,').fill('AWD');
-  await page.screenshot({ path: `${EVIDENCE_DIR}\\p23-case6-manual-input.png`, fullPage: true });
+  await page.screenshot({ path: `${EVIDENCE_DIR}/p23-case6-manual-input.png`, fullPage: true });
   console.log('✅ Manual fields filled');
 
   await page.getByRole('button', { name: 'Continue' }).click();
@@ -501,7 +501,7 @@ test('P23 Case 6 - Update classic VIN (modify data using manual input)', async (
   expect(page.url()).toContain('cv=');
   expect(getApiStatus()).toBe(200);
   console.log(`✅ API 200 & redirected: ${page.url()}`);
-  await page.screenshot({ path: `${EVIDENCE_DIR}\\p23-case6-manual-updated.png`, fullPage: true });
+  await page.screenshot({ path: `${EVIDENCE_DIR}/p23-case6-manual-updated.png`, fullPage: true });
   await ctx.close();
 });
 
@@ -737,7 +737,7 @@ test('P28 Case 6 - Email validation, maybe later API, and phone analytics flow',
   expect(analyticsResponse).toBeTruthy();
   console.log('✅ create-preview-analytics API called with payload and response captured');
 
-  await page.screenshot({ path: `${EVIDENCE_DIR}\\p28-case6-analytics.png`, fullPage: true });
+  await page.screenshot({ path: `${EVIDENCE_DIR}/p28-case6-analytics.png`, fullPage: true });
   await ctx.close();
 });
 
@@ -786,7 +786,7 @@ test('P28 Case 7 - Verify reveal record section (internal linking) and vehicle m
     console.log('ℹ️ No vehicle images for this VIN — carousel not present, skipping media section');
   }
 
-  await page.screenshot({ path: `${EVIDENCE_DIR}\\p28-case7-media-section.png`, fullPage: true });
+  await page.screenshot({ path: `${EVIDENCE_DIR}/p28-case7-media-section.png`, fullPage: true });
   console.log('✅ Reveal record section and vehicle media image section verified');
   await ctx.close();
 });
@@ -881,7 +881,7 @@ test('P23 Case 7 - Email validation, maybe later API, and phone analytics flow',
   expect(analyticsResponse).toBeTruthy();
   console.log('✅ create-preview-analytics API called with payload and response captured');
 
-  await page.screenshot({ path: `${EVIDENCE_DIR}\\p23-case7-analytics.png`, fullPage: true });
+  await page.screenshot({ path: `${EVIDENCE_DIR}/p23-case7-analytics.png`, fullPage: true });
   await ctx.close();
 });
 
