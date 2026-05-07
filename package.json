@@ -20,6 +20,6 @@
   },
   "homepage": "https://github.com/shahnawaz-cmd/vin-preview-preloader-checkout.regression.spec.js#readme",
   "devDependencies": {
-    "@playwright/test": "^1.44.0"
+    "@playwright/test": "^1.59.1"
   }
 }
