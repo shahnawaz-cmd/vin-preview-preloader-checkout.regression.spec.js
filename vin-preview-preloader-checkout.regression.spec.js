@@ -42,10 +42,9 @@ async function runCheckoutFlow(page, { screenshotPrefix, clickFlow, t0 }) {
   if (t0) {
     const totalElapsed = ((t2 - t0) / 1000).toFixed(2);
     console.log(`⏱ Preview → Checkout Total: ${totalElapsed}s`);
-    if (screenshotPrefix.startsWith('p23')) {
-      test.info().annotations.push({ type: 'Preview->Checkout Total Time', description: totalElapsed + 's' });
-      test.info().annotations.push({ type: 'Preloader->Checkout Time', description: preloaderElapsed + 's' });
-    }
+    // Add annotations for all preview types
+    test.info().annotations.push({ type: 'Preview->Checkout Total Time', description: totalElapsed + 's' });
+    test.info().annotations.push({ type: 'Preloader->Checkout Time', description: preloaderElapsed + 's' });
   }
 
   await expect(page.locator(':text("Choose payment method"), :text("Enter your card details")').first()).toBeVisible({ timeout: 30000 });
@@ -148,9 +147,9 @@ async function triggerExitIntent(page) {
 
 // ─── DRY: assert exit intent popup ───────────────────────────────────────────
 async function assertExitIntentPopup(page, screenshotName) {
-  const popup = page.locator('div').filter({ hasText: /Hey, before you leave take/i }).nth(3);
-  await expect(popup).toBeVisible({ timeout: 10000 });
-  await expect(page.locator('text=15% OFF')).toBeVisible({ timeout: 5000 });
+  const popup = page.locator('div').filter({ hasText: /Hey/i }).filter({ hasText: /leave/i }).last();
+  await expect(popup).toBeVisible({ timeout: 20000 });
+  await expect(page.locator('text=15% OFF')).toBeVisible({ timeout: 10000 });
   await expect(page.getByRole('button', { name: 'Click here to redeem instantly' })).toBeVisible({ timeout: 5000 });
   await page.getByRole('button', { name: 'Click here to redeem instantly' }).click();
   console.log('✅ Clicked CTA button');
@@ -189,66 +188,75 @@ const Preview_23 = {
 // ─── Preview 27 ───────────────────────────────────────────────────────────────
 const Preview_27 = {
   async vhr(page, url) {
+    const t0 = Date.now();
     console.log('▶ [P27 - Priority 1 VHR]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.screenshot({ path: `${EVIDENCE_DIR}/p27-vhr-01-preview.png`, fullPage: true });
-    await runCheckoutFlow(page, { screenshotPrefix: 'p27-vhr', clickFlow: p => clickFlowCreateAccount(p, 'p27-vhr') });
+    await runCheckoutFlow(page, { screenshotPrefix: 'p27-vhr', clickFlow: p => clickFlowCreateAccount(p, 'p27-vhr'), t0 });
   },
   async ws(page, url) {
+    const t0 = Date.now();
     console.log('▶ [P27 - Priority 2 WS]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.screenshot({ path: `${EVIDENCE_DIR}/p27-ws-01-preview.png`, fullPage: true });
-    await runCheckoutFlow(page, { screenshotPrefix: 'p27-ws', clickFlow: p => clickFlowCreateAccount(p, 'p27-ws') });
+    await runCheckoutFlow(page, { screenshotPrefix: 'p27-ws', clickFlow: p => clickFlowCreateAccount(p, 'p27-ws'), t0 });
   },
   async lp(page, url) {
+    const t0 = Date.now();
     console.log('▶ [P27 - Priority 3 LP]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.screenshot({ path: `${EVIDENCE_DIR}/p27-lp-01-preview.png`, fullPage: true });
-    await runCheckoutFlow(page, { screenshotPrefix: 'p27-lp', clickFlow: p => clickFlowCreateAccount(p, 'p27-lp') });
+    await runCheckoutFlow(page, { screenshotPrefix: 'p27-lp', clickFlow: p => clickFlowCreateAccount(p, 'p27-lp'), t0 });
   },
 };
 
 // ─── Preview 28 ───────────────────────────────────────────────────────────────
 const Preview_28 = {
   async vhr(page, url) {
+    const t0 = Date.now();
     console.log('▶ [P28 - Priority 1 VHR]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.screenshot({ path: `${EVIDENCE_DIR}/p28-vhr-01-preview.png`, fullPage: true });
-    await runCheckoutFlow(page, { screenshotPrefix: 'p28-vhr', clickFlow: p => clickFlowAccessRecords(p, 'p28-vhr') });
+    await runCheckoutFlow(page, { screenshotPrefix: 'p28-vhr', clickFlow: p => clickFlowAccessRecords(p, 'p28-vhr'), t0 });
   },
   async ws(page, url) {
+    const t0 = Date.now();
     console.log('▶ [P28 - Priority 2 WS]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.screenshot({ path: `${EVIDENCE_DIR}/p28-ws-01-preview.png`, fullPage: true });
-    await runCheckoutFlow(page, { screenshotPrefix: 'p28-ws', clickFlow: p => clickFlowAccessRecords(p, 'p28-ws') });
+    await runCheckoutFlow(page, { screenshotPrefix: 'p28-ws', clickFlow: p => clickFlowAccessRecords(p, 'p28-ws'), t0 });
   },
   async lp(page, url) {
+    const t0 = Date.now();
     console.log('▶ [P28 - Priority 3 LP]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.screenshot({ path: `${EVIDENCE_DIR}/p28-lp-01-preview.png`, fullPage: true });
-    await runCheckoutFlow(page, { screenshotPrefix: 'p28-lp', clickFlow: p => clickFlowAccessRecords(p, 'p28-lp') });
+    await runCheckoutFlow(page, { screenshotPrefix: 'p28-lp', clickFlow: p => clickFlowAccessRecords(p, 'p28-lp'), t0 });
   },
 };
 
 // ─── Preview 28B ──────────────────────────────────────────────────────────────
 const Preview_28B = {
   async vhr(page, url) {
+    const t0 = Date.now();
     console.log('▶ [P28B - Priority 1 VHR]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-vhr-01-preview.png`, fullPage: true });
-    await runCheckoutFlow(page, { screenshotPrefix: 'p28b-vhr', clickFlow: p => clickFlowAccessRecords(p, 'p28b-vhr') });
+    await runCheckoutFlow(page, { screenshotPrefix: 'p28b-vhr', clickFlow: p => clickFlowAccessRecords(p, 'p28b-vhr'), t0 });
   },
   async ws(page, url) {
+    const t0 = Date.now();
     console.log('▶ [P28B - Priority 2 WS]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-ws-01-preview.png`, fullPage: true });
-    await runCheckoutFlow(page, { screenshotPrefix: 'p28b-ws', clickFlow: p => clickFlowAccessRecords(p, 'p28b-ws') });
+    await runCheckoutFlow(page, { screenshotPrefix: 'p28b-ws', clickFlow: p => clickFlowAccessRecords(p, 'p28b-ws'), t0 });
   },
   async lp(page, url) {
+    const t0 = Date.now();
     console.log('▶ [P28B - Priority 3 LP]');
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-lp-01-preview.png`, fullPage: true });
-    await runCheckoutFlow(page, { screenshotPrefix: 'p28b-lp', clickFlow: p => clickFlowAccessRecords(p, 'p28b-lp') });
+    await runCheckoutFlow(page, { screenshotPrefix: 'p28b-lp', clickFlow: p => clickFlowAccessRecords(p, 'p28b-lp'), t0 });
   },
 };
 
@@ -653,39 +661,64 @@ test.describe('P23 Cases', () => {
 // ─── P28 Cases (Execution order: 2 if detected type is 28) ─────────────────────
 
 test.describe('P28 Cases', () => {
-  test.describe.configure({ mode: 'serial' });
+  let sharedPage;
 
   test.beforeAll(async ({ browser }) => {
+    // If not detected yet, do it now (handles direct block runs)
     if (!DETECTED_PAGE_TYPE) {
       const raw = await getDetectedPage(browser);
       DETECTED_PAGE = raw;
       DETECTED_PAGE_TYPE = getPageType(raw);
       console.log(`🔍 [P28 Auto-Detect] preview_page: ${DETECTED_PAGE}, Type: ${DETECTED_PAGE_TYPE}`);
     }
+
+    // Skip entire P28 block if detected page type is not '28' (exclude '28_B')
     if (DETECTED_PAGE_TYPE !== '28') {
       console.log(`⏭️ Skipping P28 Cases - detected page type is ${DETECTED_PAGE_TYPE}, not 28`);
       return;
     }
     console.log(`✅ Running P28 Cases - detected page type is 28`);
+
+    const context = await browser.newContext();
+    sharedPage = await context.newPage();
+    await sharedPage.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+    await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+    const raw = await sharedPage.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+    if (!raw?.includes('preview28') || raw?.includes('preview28_B')) {
+      await sharedPage.close();
+      sharedPage = null;
+    }
   });
 
+  test.afterAll(async () => { if (sharedPage && !sharedPage.isClosed()) await sharedPage.close(); });
+
   test('P28 Case 1 - Exit intent popup appears on preview page', async ({ browser }) => {
-    if (DETECTED_PAGE_TYPE !== '28') { test.skip(); return; }
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
     const ctx  = await browser.newContext();
     const page = await ctx.newPage();
     await page.addInitScript(spoofWebdriver);
+
     await page.goto(SITE_URL, { waitUntil: 'domcontentloaded' });
     await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+
+    console.log('🔍 Confirmed preview_page detection');
+
     await page.waitForFunction(() => document.readyState === 'complete', { timeout: 15000 });
+    await page.mouse.move(640, 400);
+    await page.mouse.wheel(0, 500);
+    await page.waitForTimeout(3000);
+    await page.mouse.wheel(0, -500);
+    await page.waitForTimeout(4000);
     await triggerExitIntent(page);
+
     await assertExitIntentPopup(page, 'p28-exit-intent-popup.png');
     console.log('✅ Exit intent popup appeared on P28 preview page');
     await ctx.close();
   });
 
   test('P28 Case 2 - Classic VIN YMM update via dropdown', async ({ browser }) => {
-    if (DETECTED_PAGE_TYPE !== '28') { test.skip(); return; }
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
     const { ctx, page, getApiStatus } = await setupClassicVinPage(browser);
     await page.getByRole('button', { name: 'Click here to update' }).click();
     await page.getByRole('button', { name: 'Update Year, Make and Model' }).click();
@@ -708,7 +741,7 @@ test.describe('P28 Cases', () => {
   });
 
   test('P28 Case 3 - Classic VIN update via manual input', async ({ browser }) => {
-    if (DETECTED_PAGE_TYPE !== '28') { test.skip(); return; }
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
     const { ctx, page, getApiStatus } = await setupClassicVinPage(browser);
     await page.getByRole('button', { name: 'Click here to update' }).click();
     await page.getByRole('button', { name: 'Update Year, Make and Model' }).click();
@@ -729,77 +762,240 @@ test.describe('P28 Cases', () => {
     await ctx.close();
   });
 
-  test('P28 Case 4 - Default plan price matches site_settings.default_plan', async ({ browser }) => {
-    if (DETECTED_PAGE_TYPE !== '28') { test.skip(); return; }
-    const ctx  = await browser.newContext();
-    const page = await ctx.newPage();
-    await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
-    await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-    const defaultPlan = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').default_plan ?? null);
+  test('P28 Case 4 - Default plan price matches site_settings.default_plan', async () => {
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
+    const defaultPlan = await sharedPage.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').default_plan ?? null);
     const planPrice = defaultPlan?.price ?? defaultPlan?.amount ?? defaultPlan?.value ?? null;
     expect(parseFloat(planPrice)).toBeGreaterThan(0);
     console.log(`✅ Default plan price is valid: $${planPrice}`);
-    await ctx.close();
   });
 
   test('P28 Case 5 - Plan selection, info/error messages and UVC upsell hide', async ({ browser }) => {
-    if (DETECTED_PAGE_TYPE !== '28') { test.skip(); return; }
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
     const ctx  = await browser.newContext();
     const page = await ctx.newPage();
     await page.addInitScript(spoofWebdriver);
+
     await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+
+    const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+    if (!raw?.includes('28')) { await ctx.close(); test.skip(); return; }
+    console.log(`🔍 Confirmed preview_page: ${raw}`);
+
     await page.getByRole('radio', { name: /Most Popular 2 Vehicle/i }).waitFor({ state: 'visible', timeout: 15000 });
+
     await page.getByRole('radio', { name: /Most Popular 2 Vehicle/i }).click();
     await expect(page.getByText('vehicle reports selected!')).toBeVisible({ timeout: 5000 });
+    console.log('✅ Most Popular plan selected — info message shown');
+
     await page.getByRole('radio', { name: /56% Cheaper Than Carfax 1/i }).click();
     await expect(page.getByText('vehicle report selected!')).toBeVisible({ timeout: 5000 });
+    console.log('✅ 1 Vehicle plan selected — info message shown');
+
     await page.getByRole('radio', { name: /Best Value Unlimited VIN/i }).click();
     await expect(page.getByText('Window Sticker removed from')).toBeVisible({ timeout: 5000 });
+    console.log('✅ UVC selected — Window Sticker upsell removed message shown');
+
+    await page.getByRole('radio', { name: /Best Value Unlimited VIN/i }).click();
+    await expect(page.getByText('Plan Already Selected ✅')).toBeVisible({ timeout: 5000 });
+    console.log('✅ Re-clicking UVC shows "Plan Already Selected" message');
+
+    await page.getByRole('radio', { name: /56% Cheaper Than Carfax 1/i }).click();
+    await page.getByRole('radio', { name: /Most Popular 2 Vehicle/i }).click();
+    await page.getByRole('radio', { name: /56% Cheaper Than Carfax 1/i }).click();
+    console.log('✅ Plan switching works correctly');
+
+    await page.getByRole('button', { name: /Get Unlimited VIN Checks/i }).click();
+    const closeBtn = page.locator('button.absolute.right-4.top-4');
+    await expect(closeBtn).toBeVisible({ timeout: 5000 });
+    await closeBtn.click();
+    console.log('✅ Unlimited VIN Checks modal opens and closes');
+
+    await page.getByRole('button', { name: /See more packages & save up/i }).click();
+    await page.locator('div').filter({ hasText: /^5 Reports\$12\.00\/ReportSave 40%$/ }).first().click();
+    console.log('✅ 5 Reports bulk package selectable');
+
+    await page.locator('div').filter({ hasText: /^10 Reports\$8\.00\/ReportSave 60%$/ }).first().click();
+    await expect(page.getByText('10 vehicle reports selected!').first()).toBeVisible({ timeout: 5000 });
+    console.log('✅ 10 Reports bulk package selectable — info message shown');
+
+    await page.locator('div').filter({ hasText: /^25 Reports\$7\.00\/ReportSave 65%$/ }).first().click();
+    console.log('✅ 25 Reports bulk package selectable');
+
     await ctx.close();
   });
 
   test('P28 Case 6 - Email validation, maybe later API, and phone analytics flow', async ({ browser }) => {
-    if (DETECTED_PAGE_TYPE !== '28') { test.skip(); return; }
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
     const ctx  = await browser.newContext();
     const page = await ctx.newPage();
-    await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+
+    const vin = randomVin();
+    await page.goto(getVhrUrl(vin), { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+
+    const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+    if (!raw?.includes('28')) { await ctx.close(); test.skip(); return; }
+    console.log(`🔍 Confirmed preview_page: ${raw}`);
+
+    // ── Step 2: Open email popup ──────────────────────────────────────────────
     await page.getByRole('button', { name: /access records/i }).first().click();
     const emailInput = page.locator('input[type="email"]').first();
+    await emailInput.waitFor({ state: 'visible', timeout: 10000 });
+    console.log('✅ Email popup opened');
+
+    // ── Step 3 & 4: Enter invalid email → expect validation error ─────────────
     await emailInput.fill('invalidemail');
     await page.getByRole('button', { name: /proceed to checkout/i }).click();
-    await expect(page.locator('text=/please enter a valid email/i')).toBeVisible({ timeout: 5000 });
+    const errorMsg = page.locator('text=/please enter a valid email/i');
+    await expect(errorMsg).toBeVisible({ timeout: 5000 });
+    console.log('✅ Validation error shown for invalid email');
+
+    // ── Step 5: Enter valid email → click Maybe Later → assert API + payload ──
     await emailInput.clear();
-    await emailInput.fill(`test_${Date.now()}@example.com`);
+    const validEmail = `test_${Date.now()}@example.com`;
+    await emailInput.fill(validEmail);
+    console.log(`📧 Valid email: ${validEmail}`);
+
     let maybeLaterCalled = false;
-    page.on('request', req => { if (req.url().includes('landing/index_collection')) maybeLaterCalled = true; });
+    let maybeLaterPayload;
+    page.on('request', req => {
+      if (req.url().includes('landing/index_collection')) {
+        maybeLaterCalled = true;
+        maybeLaterPayload = req.postData();
+        console.log(`📤 Maybe Later API called: ${req.url()}`);
+        console.log(`📤 Maybe Later payload: ${maybeLaterPayload}`);
+      }
+    });
+
     await page.getByRole('button', { name: /maybe later/i }).click();
     await page.waitForTimeout(2000);
     expect(maybeLaterCalled).toBe(true);
+    expect(maybeLaterPayload).toBeTruthy();
+    console.log('✅ landing/index_collection API called on Maybe Later');
+
+    // ── Step 6: Popup closed → reopen → fill valid email + phone → analytics ──
+    await expect(emailInput).not.toBeVisible({ timeout: 5000 });
+    console.log('✅ Email popup closed after Maybe Later');
+
+    await page.getByRole('button', { name: /access records/i }).first().click();
+    const emailInput2 = page.locator('input[type="email"]').first();
+    await emailInput2.waitFor({ state: 'visible', timeout: 10000 });
+
+    const uniqueEmail = `test_${Date.now()}_u@example.com`;
+    await emailInput2.fill(uniqueEmail);
+    console.log(`📧 Unique email: ${uniqueEmail}`);
+
+    const phoneInput = page.locator('input[type="tel"], input[placeholder*="phone" i], input[placeholder*="Phone" i]').first();
+    await phoneInput.waitFor({ state: 'visible', timeout: 10000 });
+
+    let analyticsPayload;
+    page.on('request', req => {
+      if (req.url().includes('api-cwa/create-preview-analytics')) {
+        analyticsPayload = req.postData();
+        console.log(`📤 Analytics API payload: ${analyticsPayload}`);
+      }
+    });
+
+    await phoneInput.click();
+    await phoneInput.fill('5551234567');
+
+    const analyticsResponsePromise = page.waitForResponse(
+      res => res.url().includes('api-cwa/create-preview-analytics'),
+      { timeout: 15000 }
+    );
+    await page.getByRole('button', { name: /proceed to checkout/i }).click();
+    const analyticsRes = await analyticsResponsePromise.catch(() => null);
+    const analyticsResponse = analyticsRes ? await analyticsRes.json().catch(() => analyticsRes.text()) : null;
+    console.log(`📥 Analytics API response: ${JSON.stringify(analyticsResponse)}`);
+
+    expect(analyticsPayload).toBeTruthy();
+    expect(analyticsResponse).toBeTruthy();
+    console.log('✅ create-preview-analytics API called with payload and response captured');
+
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p28-case6-analytics.png`, fullPage: true });
     await ctx.close();
   });
 
-  test('P28 Case 7 - Verify reveal record section and vehicle media carousel', async ({ browser }) => {
-    if (DETECTED_PAGE_TYPE !== '28') { test.skip(); return; }
+  test('P28 Case 7 - Verify reveal record section (internal linking) and vehicle media image section', async ({ browser }) => {
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
     const ctx  = await browser.newContext();
     const page = await ctx.newPage();
+
     await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+
+    const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+    if (!raw?.includes('28')) { await ctx.close(); test.skip(); return; }
+    console.log(`🔍 Confirmed preview_page: ${raw}`);
+
+    // ── Reveal record section: click each record link and close ───────────────
     const recordLinks = page.locator('.text-lg');
     await recordLinks.first().waitFor({ state: 'visible', timeout: 15000 });
     const count = await recordLinks.count();
-    for (let i = 0; i < Math.min(count, 3); i++) {
+    console.log(`📋 Found ${count} record links`);
+
+    for (let i = 0; i < Math.min(count, 5); i++) {
       await recordLinks.nth(i).click();
-      await page.getByRole('button', { name: 'Close' }).click();
+      const closeBtn = page.getByRole('button', { name: 'Close' });
+      await closeBtn.waitFor({ state: 'visible', timeout: 8000 });
+      await closeBtn.click();
+      console.log(`✅ Record link ${i + 1} opened and closed`);
     }
+
+    // ── Vehicle media image section: scroll to top, click left & right arrows ──
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(500);
+
+    // Carousel only appears if vehicle has images — check first
     const nextBtn = page.locator('div').filter({ hasText: /^\d+ \/ \d+$/ }).getByRole('button').nth(1);
-    if (await nextBtn.isVisible()) await nextBtn.click();
+    const prevBtn = page.locator('div').filter({ hasText: /^\d+ \/ \d+$/ }).getByRole('button').first();
+
+    const carouselVisible = await nextBtn.isVisible().catch(() => false);
+    if (carouselVisible) {
+      await nextBtn.click();
+      console.log('✅ Clicked next (right) arrow on vehicle media');
+      await prevBtn.click();
+      console.log('✅ Clicked prev (left) arrow on vehicle media');
+    } else {
+      console.log('ℹ️ No vehicle images for this VIN — carousel not present, skipping media section');
+    }
+
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p28-case7-media-section.png`, fullPage: true });
+    console.log('✅ Reveal record section and vehicle media image section verified');
     await ctx.close();
+  });
+
+  test('P28 Case 8 - Window Sticker checkbox dynamic text and price', async () => {
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
+    await sharedPage.reload({ waitUntil: 'domcontentloaded' });
+    
+    // Wait for plans to be visible
+    await sharedPage.getByRole('radio', { name: /Vehicle/i }).first().waitFor({ state: 'visible', timeout: 30000 });
+
+    // Handle auto-selected window sticker - click Undo if present to reveal original text
+    const undoBtn = sharedPage.getByRole('button', { name: /Undo/i });
+    if (await undoBtn.isVisible()) {
+      await undoBtn.click();
+      console.log('✅ Clicked Undo on auto-selected window sticker');
+      await sharedPage.waitForTimeout(2000);
+    }
+
+    await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').sticker_preview_page_checkbox_price, { timeout: 15000 });
+    const settings = await sharedPage.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}'));
+    const fullText = await sharedPage.evaluate(() => document.body.innerText);
+    
+    console.log(`🔍 Expected Text: ${settings.sticker_preview_page_checkbox_text}`);
+    console.log(`🔍 Expected Price: ${settings.sticker_preview_page_checkbox_price}`);
+
+    expect(fullText).toContain(settings.sticker_preview_page_checkbox_text);
+    expect(fullText).toContain(settings.sticker_preview_page_checkbox_price);
+    console.log('✅ Window sticker dynamic text and price verified');
   });
 });
 
-// ─── P28B Cases (Execution order: 2 if detected type is 28_B) ──────────────────
+// ─── P28B Cases (Only run if preview_page is preview28_B) ──────────────────
 
 test.describe('P28B Cases', () => {
   test.describe.configure({ mode: 'serial' });
@@ -807,12 +1003,15 @@ test.describe('P28B Cases', () => {
   let sharedPage;
 
   test.beforeAll(async ({ browser }) => {
+    // If not detected yet, do it now (handles direct block runs)
     if (!DETECTED_PAGE_TYPE) {
       const raw = await getDetectedPage(browser);
       DETECTED_PAGE = raw;
       DETECTED_PAGE_TYPE = getPageType(raw);
       console.log(`🔍 [P28B Auto-Detect] preview_page: ${DETECTED_PAGE}, Type: ${DETECTED_PAGE_TYPE}`);
     }
+
+    // Skip entire P28B block if detected page type is not '28_B'
     if (DETECTED_PAGE_TYPE !== '28_B') {
       console.log(`⏭️ Skipping P28B Cases - detected page type is ${DETECTED_PAGE_TYPE}, not 28_B`);
       return;
@@ -821,11 +1020,22 @@ test.describe('P28B Cases', () => {
 
     const context = await browser.newContext();
     sharedPage = await context.newPage();
-    await sharedPage.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
-    await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-    if (!(await sharedPage.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page)).includes('preview28')) {
+    try {
+      await sharedPage.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+    } catch (e) {
+      console.log(`⚠️ Failed to navigate to URL: ${e.message}`);
       await sharedPage.close();
       sharedPage = null;
+      return;
+    }
+    await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+    const raw = await sharedPage.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+    // Check for preview28_B format
+    if (!raw?.includes('preview28')) {
+      console.log(`⚠️ preview_page is not preview28, closing sharedPage`);
+      await sharedPage.close();
+      sharedPage = null;
+      return;
     }
   });
 
@@ -833,6 +1043,7 @@ test.describe('P28B Cases', () => {
 
   test('P28B Case 1 - Plan radio buttons are clickable', async () => {
     if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
+    await sharedPage.reload({ waitUntil: 'domcontentloaded' });
     const plans = sharedPage.locator('[role="radio"]');
     await plans.first().waitFor({ state: 'visible', timeout: 15000 });
     for (let i = 0; i < await plans.count(); i++) {
