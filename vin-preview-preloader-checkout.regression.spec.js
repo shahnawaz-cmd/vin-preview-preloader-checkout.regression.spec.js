@@ -917,6 +917,15 @@ test.describe('P28B Cases', () => {
     // Wait for page to finish loading (plans container should appear)
     await sharedPage.locator('#plans').waitFor({ state: 'visible', timeout: 30000 });
 
+    // Check if window sticker is auto-selected and click Undo if present
+    const undoBtn = sharedPage.locator('button:has-text("Undo")').filter({ hasText: /Window sticker added to your purchase/i }).first();
+    const isUndoVisible = await undoBtn.isVisible().catch(() => false);
+    if (isUndoVisible) {
+      await undoBtn.click();
+      console.log('✅ Clicked Undo on auto-selected window sticker');
+      await sharedPage.waitForTimeout(1000);
+    }
+
     await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').sticker_preview_page_checkbox_price, { timeout: 15000 });
     const settings = await sharedPage.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}'));
     
@@ -1066,6 +1075,15 @@ test('P28B Case 8 - Plan selection, info/error messages and UVC upsell hide', as
 
   // Smart wait: Wait for page to fully render before interacting
   await page.waitForTimeout(3000);
+  
+  // Handle auto-selected window sticker - click Undo if present
+  const undoBtn = page.locator('button:has-text("Undo")').filter({ hasText: /Window sticker added to your purchase/i }).first();
+  const isUndoVisible = await undoBtn.isVisible().catch(() => false);
+  if (isUndoVisible) {
+    await undoBtn.click();
+    console.log('✅ Clicked Undo on auto-selected window sticker');
+    await page.waitForTimeout(1000);
+  }
   
   // Codegen steps for P28B Case 8 - with smart waits between clicks
   await page.getByText('/Report').nth(1).click();
@@ -1237,6 +1255,55 @@ test('P28B Case 10 - Verify reveal record section (internal linking) and vehicle
 
   await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-case10-media-section.png`, fullPage: true });
   console.log('✅ Reveal record section and vehicle media image section verified');
+  await ctx.close();
+});
+
+// ─── P28B Global Cases ────────────────────────────────────────────────────────
+
+test('P28B Global Case 1 - Lower to higher coupon swap logic (cookie validation)', async ({ browser }) => {
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+  const getCookie = async (name) => (await ctx.cookies()).find(c => c.name === name) ?? null;
+
+  await page.goto('https://developtestsite.com/?offer=offer20', { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(2000);
+  const step1 = await getCookie('coupon');
+  expect(step1?.value).toBe('offer20');
+  console.log(`✅ Step 1 — coupon=${step1.value}`);
+
+  await page.goto('https://developtestsite.com/?offer=testing', { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(2000);
+  const step2c = await getCookie('coupon');
+  const step2p = await getCookie('prev_coupon');
+  expect(step2c?.value).toBe('testing');
+  expect(step2p?.value).toBe('offer20');
+  console.log(`✅ Step 2 — coupon=${step2c.value}, prev_coupon=${step2p.value}`);
+
+  await page.goto('https://developtestsite.com/?offer=offer20', { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(2000);
+  const step4c = await getCookie('coupon');
+  const step4p = await getCookie('prev_coupon');
+  expect(step4c?.value).toBe('offer20');
+  expect(step4p?.value).toBe('testing');
+  console.log(`✅ Step 4 — coupon=${step4c.value}, prev_coupon=${step4p.value}`);
+
+  console.log('✅ Coupon swap logic verified');
+  await ctx.close();
+});
+
+test('P28B Global Case 2 - ref=ads param sets cookie correctly', async ({ browser }) => {
+  const ctx  = await browser.newContext();
+  const page = await ctx.newPage();
+  const getCookie = async (name) => (await ctx.cookies()).find(c => c.name === name) ?? null;
+
+  await page.goto('https://developtestsite.com/?ref=ads', { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(2000);
+
+  const refCookie = await getCookie('ref');
+  expect(refCookie).not.toBeNull();
+  expect(refCookie.value).toBe('ads');
+  console.log(`✅ ref cookie set: ${refCookie.name}=${refCookie.value}`);
+
   await ctx.close();
 });
 
