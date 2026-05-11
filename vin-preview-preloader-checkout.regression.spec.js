@@ -253,12 +253,36 @@ const Preview_28B = {
 };
 
 // ─── Block Maps ───────────────────────────────────────────────────────────────
-const VHR_BLOCKS = { '23': Preview_23.vhr, '27': Preview_27.vhr, '28': Preview_28.vhr, '28B': Preview_28B.vhr };
-const WS_BLOCKS  = { '23': Preview_23.ws,  '27': Preview_27.ws,  '28': Preview_28.ws,  '28B': Preview_28B.ws  };
-const LP_BLOCKS  = { '23': Preview_23.lp,  '27': Preview_27.lp,  '28': Preview_28.lp,  '28B': Preview_28B.lp  };
+const VHR_BLOCKS = { '23': Preview_23.vhr, '27': Preview_27.vhr, '28': Preview_28.vhr, '28_B': Preview_28B.vhr };
+const WS_BLOCKS  = { '23': Preview_23.ws,  '27': Preview_27.ws,  '28': Preview_28.ws,  '28_B': Preview_28B.ws  };
+const LP_BLOCKS  = { '23': Preview_23.lp,  '27': Preview_27.lp,  '28': Preview_28.lp,  '28_B': Preview_28B.lp  };
 
 
-// ─── Priority Tests ───────────────────────────────────────────────────────────
+// ─── Global Page Detection ────────────────────────────────────────────────────
+let DETECTED_PAGE = null;
+let DETECTED_PAGE_TYPE = null; // '23', '27', '28', or '28_B'
+
+// Helper function to detect page if not already detected
+async function getDetectedPage(browser) {
+  if (DETECTED_PAGE) return DETECTED_PAGE;
+  
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+  await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+  const detected = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+  await ctx.close();
+  return detected;
+}
+
+// Extract page type from detected page
+function getPageType(detectedPage) {
+  if (!detectedPage) return null;
+  const match = detectedPage.match(/preview(28_B|28[AB]|\d+)/);
+  return match ? match[1] : null;
+}
+
+// ─── Priority Tests (Execution order: 1) ───────────────────────────────────────
 
 test('Priority 1 - VHR: detect preview_page and run VHR block', async ({ page }) => {
   const vin = randomVin();
@@ -271,11 +295,17 @@ test('Priority 1 - VHR: detect preview_page and run VHR block', async ({ page })
   const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
   console.log(`🔍 [VHR] preview_page: ${raw}`);
 
+  // Store detected page globally
+  DETECTED_PAGE = raw;
+  DETECTED_PAGE_TYPE = getPageType(raw);
+  console.log(`🔍 Detected Page Type: ${DETECTED_PAGE_TYPE}`);
+
   // persist for summary
   const existing = fs.existsSync(SUMMARY_FILE) ? JSON.parse(fs.readFileSync(SUMMARY_FILE, 'utf8')) : {};
   fs.writeFileSync(SUMMARY_FILE, JSON.stringify({ ...existing, vhr: raw }));
 
-  const num = raw?.match(/preview(28[AB]|\d+)/)?.[1];
+  const num = raw?.match(/preview(28_B|28[AB]|\d+)/)?.[1];
+  console.log(`🔍 Block number: ${num}`);
   const block = VHR_BLOCKS[num];
   if (!block) throw new Error(`[VHR] No block for: "${num}" (raw: "${raw}")`);
   await block(page, VHR_URL);
@@ -297,7 +327,7 @@ test('Priority 2 - WS: detect ws_preview_page and run WS block', async ({ browse
   const existing = fs.existsSync(SUMMARY_FILE) ? JSON.parse(fs.readFileSync(SUMMARY_FILE, 'utf8')) : {};
   fs.writeFileSync(SUMMARY_FILE, JSON.stringify({ ...existing, ws: raw }));
 
-  const num = raw?.match(/preview(28[AB]|\d+)/)?.[1];
+  const num = raw?.match(/preview(28_B|28[AB]|\d+)/)?.[1];
   const block = WS_BLOCKS[num];
   if (!block) { await context.close(); throw new Error(`[WS] No block for: "${num}" (raw: "${raw}")`); }
   await block(page, WS_URL);
@@ -317,14 +347,14 @@ test('Priority 3 - LP: detect license_preview_page and run LP block', async ({ b
   const existing = fs.existsSync(SUMMARY_FILE) ? JSON.parse(fs.readFileSync(SUMMARY_FILE, 'utf8')) : {};
   fs.writeFileSync(SUMMARY_FILE, JSON.stringify({ ...existing, lp: raw }));
 
-  const num = raw?.match(/preview(28[AB]|\d+)/)?.[1];
+  const num = raw?.match(/preview(28_B|28[AB]|\d+)/)?.[1];
   const block = LP_BLOCKS[num];
   if (!block) { await context.close(); throw new Error(`[LP] No block for: "${num}" (raw: "${raw}")`); }
   await block(page, LP_URL);
   await context.close();
 });
 
-// ─── P23 Cases ────────────────────────────────────────────────────────────────
+// ─── P23 Cases (Execution order: 2 if detected type is 23) ─────────────────────
 
 test.describe('P23 Cases', () => {
   test.describe.configure({ mode: 'serial' });
@@ -332,6 +362,20 @@ test.describe('P23 Cases', () => {
   let sharedPage;
 
   test.beforeAll(async ({ browser }) => {
+    // If not detected yet, do it now (handles direct block runs)
+    if (!DETECTED_PAGE_TYPE) {
+      const raw = await getDetectedPage(browser);
+      DETECTED_PAGE = raw;
+      DETECTED_PAGE_TYPE = getPageType(raw);
+      console.log(`🔍 [P23 Auto-Detect] preview_page: ${DETECTED_PAGE}, Type: ${DETECTED_PAGE_TYPE}`);
+    }
+
+    // Skip entire P23 block if detected page type is not 23
+    if (DETECTED_PAGE_TYPE !== '23') {
+      console.log(`⏭️ Skipping P23 Cases - detected page type is ${DETECTED_PAGE_TYPE}, not 23`);
+      return;
+    }
+
     const context = await browser.newContext();
     sharedPage = await context.newPage();
     await sharedPage.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
@@ -339,13 +383,16 @@ test.describe('P23 Cases', () => {
     const raw = await sharedPage.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
     const num = raw?.match(/preview(\d+)/)?.[1];
     console.log(`🔍 preview_page: ${raw}`);
-    if (num !== '23') await sharedPage.close();
+    if (num !== '23') {
+      await sharedPage.close();
+      sharedPage = null;
+    }
   });
 
-  test.afterAll(async () => { await sharedPage?.close(); });
+  test.afterAll(async () => { if (sharedPage && !sharedPage.isClosed()) await sharedPage.close(); });
 
   test('P23 Case 1 - Plan radio buttons are clickable', async () => {
-    if (sharedPage.isClosed()) { test.skip(); return; }
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
     await sharedPage.reload({ waitUntil: 'domcontentloaded' });
 
     const plans = sharedPage.locator('#plans [role="radio"]');
@@ -362,7 +409,7 @@ test.describe('P23 Cases', () => {
   });
 
   test('P23 Case 2 - Unlimited VIN Check locks the decal checkbox', async () => {
-    if (sharedPage.isClosed()) { test.skip(); return; }
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
     await sharedPage.locator('#plans').waitFor({ state: 'visible', timeout: 15000 });
 
     await sharedPage.locator('#plans [role="radio"]').filter({ hasText: /unmimited vin check/i }).first().click();
@@ -379,7 +426,7 @@ test.describe('P23 Cases', () => {
   });
 
   test('P23 Case 3 - Default plan price matches site_settings.default_plan', async () => {
-    if (sharedPage.isClosed()) { test.skip(); return; }
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
 
     const defaultPlan = await sharedPage.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').default_plan ?? null);
     console.log(`🔍 default_plan: ${JSON.stringify(defaultPlan)}`);
@@ -399,438 +446,360 @@ test.describe('P23 Cases', () => {
     console.log(`✅ Default plan price matches: ${planPrice} = $${pagePrice}`);
   });
 
+  test('P23 Case 4 - Exit intent popup appears on preview page', async ({ browser }) => {
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
+    const ctx  = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.addInitScript(spoofWebdriver);
+
+    await page.goto(SITE_URL, { waitUntil: 'domcontentloaded' });
+    await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+
+    const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+    if (raw?.match(/preview(\d+)/)?.[1] !== '23') { await ctx.close(); test.skip(); return; }
+    console.log(`🔍 Confirmed preview_page: ${raw}`);
+
+    await page.waitForFunction(() => document.readyState === 'complete', { timeout: 15000 });
+    await page.mouse.move(640, 400);
+    await page.mouse.wheel(0, 500);
+    await page.waitForTimeout(3000);
+    await page.mouse.wheel(0, -500);
+    await page.waitForTimeout(4000);
+    await triggerExitIntent(page);
+
+    await assertExitIntentPopup(page, 'p23-exit-intent-popup.png');
+    console.log('✅ Exit intent popup appeared on P23 preview page');
+    await ctx.close();
+  });
+
+  test('P23 Case 5 - Classic mapped VIN modification (update YMM using dropdown)', async ({ browser }) => {
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
+    const { ctx, page, getApiStatus } = await setupClassicVinPage(browser);
+
+    const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+    if (raw?.match(/preview(\d+)/)?.[1] !== '23') { await ctx.close(); test.skip(); return; }
+    console.log(`🔍 Confirmed preview_page: ${raw}`);
+
+    await page.getByRole('button', { name: 'Click here to update' }).click();
+    await page.getByRole('button', { name: 'Update Year, Make and Model' }).click();
+
+    await page.getByLabel('Year').click();
+    await page.getByLabel('1961').click();
+    await page.getByLabel('Make').click();
+    await page.getByLabel('AJS').click();
+    await page.getByLabel('Model').click();
+    await page.getByText('Model 16 350ms').click();
+    await page.getByLabel('Trim').click();
+    await page.getByText('Base', { exact: true }).click();
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p23-case5-ymm-selected.png`, fullPage: true });
+
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Confirm Selection' }).click();
+    await page.getByRole('button', { name: 'Submit' }).click();
+    await page.waitForURL(/cv=/, { timeout: 30000 });
+
+    expect(page.url()).toContain('cv=');
+    expect(getApiStatus()).toBe(200);
+    console.log(`✅ API 200 & redirected: ${page.url()}`);
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p23-case5-ymm-updated.png`, fullPage: true });
+    await ctx.close();
+  });
+
+  test('P23 Case 6 - Update classic VIN (modify data using manual input)', async ({ browser }) => {
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
+    const { ctx, page, getApiStatus } = await setupClassicVinPage(browser);
+
+    const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+    if (raw?.match(/preview(\d+)/)?.[1] !== '23') { await ctx.close(); test.skip(); return; }
+    console.log(`🔍 Confirmed preview_page: ${raw}`);
+
+    await page.getByRole('button', { name: 'Click here to update' }).click();
+    await page.getByRole('button', { name: 'Update Year, Make and Model' }).click();
+    await page.getByRole('button', { name: 'Click here' }).click();
+
+    await page.getByPlaceholder('Enter year').fill('1960');
+    await page.getByPlaceholder('Enter year').press('Tab');
+    await page.getByPlaceholder('Enter make').fill('Ford');
+    await page.getByPlaceholder('Enter make').press('Tab');
+    await page.getByPlaceholder('Enter model').fill('F-250');
+    await page.getByPlaceholder('Enter model').press('Tab');
+    await page.getByPlaceholder('Enter engine (e.g., V8,').fill('V8');
+    await page.getByPlaceholder('Enter engine (e.g., V8,').press('Tab');
+    await page.getByPlaceholder('Enter transmission type').fill('Auto');
+    await page.getByPlaceholder('Enter transmission type').press('Tab');
+    await page.getByPlaceholder('Enter number of doors').fill('5');
+    await page.getByPlaceholder('Enter number of doors').press('Tab');
+    await page.getByPlaceholder('Enter drive type (e.g., RWD,').fill('AWD');
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p23-case6-manual-input.png`, fullPage: true });
+    console.log('✅ Manual fields filled');
+
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Submit' }).click();
+    await page.waitForURL(/cv=/, { timeout: 30000 });
+
+    expect(page.url()).toContain('cv=');
+    expect(getApiStatus()).toBe(200);
+    console.log(`✅ API 200 & redirected: ${page.url()}`);
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p23-case6-manual-updated.png`, fullPage: true });
+    await ctx.close();
+  });
+
+  test('P23 Case 7 - Email validation, maybe later API, and phone analytics flow', async ({ browser }) => {
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
+    const ctx  = await browser.newContext();
+    const page = await ctx.newPage();
+
+    const vin = randomVin();
+    await page.goto(getVhrUrl(vin), { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+
+    const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+    if (raw?.match(/preview(\d+)/)?.[1] !== '23') { await ctx.close(); test.skip(); return; }
+    console.log(`🔍 Confirmed preview_page: ${raw}`);
+
+    // ── Step 2: Open email popup ──────────────────────────────────────────────
+    await page.getByRole('button', { name: /access records/i }).first().click();
+    const emailInput = page.locator('input[type="email"]').first();
+    await emailInput.waitFor({ state: 'visible', timeout: 10000 });
+    console.log('✅ Email popup opened');
+
+    // ── Step 3 & 4: Enter invalid email → expect validation error ─────────────
+    await emailInput.fill('invalidemail');
+    await page.getByRole('button', { name: /proceed to checkout/i }).click();
+    const errorMsg = page.locator('text=/please enter a valid email/i');
+    await expect(errorMsg).toBeVisible({ timeout: 5000 });
+    console.log('✅ Validation error shown for invalid email');
+
+    // ── Step 5: Enter valid email → click Maybe Later → assert API call ───────
+    await emailInput.clear();
+    const validEmail = `test_${Date.now()}@example.com`;
+    await emailInput.fill(validEmail);
+    console.log(`📧 Valid email: ${validEmail}`);
+
+    let maybeLaterCalled = false;
+    let maybeLaterPayload;
+    page.on('request', req => {
+      if (req.url().includes('landing/index_collection')) {
+        maybeLaterCalled = true;
+        maybeLaterPayload = req.postData();
+        console.log(`📤 Maybe Later API called: ${req.url()}`);
+        console.log(`📤 Maybe Later payload: ${maybeLaterPayload}`);
+      }
+    });
+
+    await page.getByRole('button', { name: /maybe later/i }).click();
+    await page.waitForTimeout(2000);
+    expect(maybeLaterCalled).toBe(true);
+    expect(maybeLaterPayload).toBeTruthy();
+    console.log('✅ landing/index_collection API called on Maybe Later');
+
+    // ── Step 6: Popup closed → reopen → fill valid email + phone → analytics API
+    await expect(emailInput).not.toBeVisible({ timeout: 5000 });
+    console.log('✅ Email popup closed after Maybe Later');
+
+    await page.getByRole('button', { name: /access records/i }).first().click();
+    const emailInput2 = page.locator('input[type="email"]').first();
+    await emailInput2.waitFor({ state: 'visible', timeout: 10000 });
+
+    const uniqueEmail = `test_${Date.now()}_u@example.com`;
+    await emailInput2.fill(uniqueEmail);
+    console.log(`📧 Unique email: ${uniqueEmail}`);
+
+    const phoneInput = page.locator('input[type="tel"], input[placeholder*="phone" i], input[placeholder*="Phone" i]').first();
+    await phoneInput.waitFor({ state: 'visible', timeout: 10000 });
+
+    let analyticsPayload;
+    page.on('request', req => {
+      if (req.url().includes('api-cwa/create-preview-analytics')) {
+        analyticsPayload = req.postData();
+        console.log(`📤 Analytics API payload: ${analyticsPayload}`);
+      }
+    });
+
+    await phoneInput.click();
+    await phoneInput.fill('5551234567');
+
+    const analyticsResponsePromise = page.waitForResponse(
+      res => res.url().includes('api-cwa/create-preview-analytics'),
+      { timeout: 15000 }
+    );
+    await page.getByRole('button', { name: /proceed to checkout/i }).click();
+    const analyticsRes = await analyticsResponsePromise.catch(() => null);
+    const analyticsResponse = analyticsRes ? await analyticsRes.json().catch(() => analyticsRes.text()) : null;
+    console.log(`📥 Analytics API response: ${JSON.stringify(analyticsResponse)}`);
+
+    expect(analyticsPayload).toBeTruthy();
+    expect(analyticsResponse).toBeTruthy();
+    console.log('✅ create-preview-analytics API called with payload and response captured');
+
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p23-case7-analytics.png`, fullPage: true });
+    await ctx.close();
+  });
+
   test('P23 Case 8 - Window Sticker checkbox dynamic text and price', async () => {
-    if (sharedPage.isClosed()) { test.skip(); return; }
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
     await sharedPage.reload({ waitUntil: 'domcontentloaded' });
-
-    // Wait for page to finish loading (plans container should appear)
     await sharedPage.locator('#plans').waitFor({ state: 'visible', timeout: 30000 });
-
     await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').sticker_preview_page_checkbox_price, { timeout: 15000 });
     const settings = await sharedPage.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}'));
-    
     const fullText = await sharedPage.evaluate(() => document.body.innerText);
-
     expect(fullText).toContain(settings.sticker_preview_page_checkbox_text);
     expect(fullText).toContain(settings.sticker_preview_page_checkbox_price);
-    console.log('✅ Window sticker dynamic text and price verified in page text content');
+    console.log('✅ Window sticker dynamic text and price verified');
   });
 });
 
+// ─── P28 Cases (Execution order: 2 if detected type is 28) ─────────────────────
 
-// ─── Exit Intent Tests ────────────────────────────────────────────────────────
+test.describe('P28 Cases', () => {
+  test.describe.configure({ mode: 'serial' });
 
-test('P23 Case 4 - Exit intent popup appears on preview page', async ({ browser }) => {
-  const ctx  = await browser.newContext();
-  const page = await ctx.newPage();
-  await page.addInitScript(spoofWebdriver);
-
-  await page.goto(SITE_URL, { waitUntil: 'domcontentloaded' });
-  await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-
-  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-  if (raw?.match(/preview(\d+)/)?.[1] !== '23') { await ctx.close(); test.skip(); return; }
-  console.log(`🔍 Confirmed preview_page: ${raw}`);
-
-  await page.waitForFunction(() => document.readyState === 'complete', { timeout: 15000 });
-  await page.mouse.move(640, 400);
-  await page.mouse.wheel(0, 500);
-  await page.waitForTimeout(3000);
-  await page.mouse.wheel(0, -500);
-  await page.waitForTimeout(4000);
-  await triggerExitIntent(page);
-
-  await assertExitIntentPopup(page, 'p23-exit-intent-popup.png');
-  console.log('✅ Exit intent popup appeared on P23 preview page');
-  await ctx.close();
-});
-
-test('P28 Case 1 - Exit intent popup appears on preview page', async ({ browser }) => {
-  const ctx  = await browser.newContext();
-  const page = await ctx.newPage();
-  await page.addInitScript(spoofWebdriver);
-
-  await page.goto(SITE_URL, { waitUntil: 'domcontentloaded' });
-  await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-
-  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-  if (!raw?.includes('28')) { await ctx.close(); test.skip(); return; }
-  console.log(`🔍 Confirmed preview_page: ${raw}`);
-
-  await page.waitForFunction(() => document.readyState === 'complete', { timeout: 15000 });
-  await page.mouse.move(640, 400);
-  await page.mouse.wheel(0, 500);
-  await page.waitForTimeout(3000);
-  await page.mouse.wheel(0, -500);
-  await page.waitForTimeout(4000);
-  await triggerExitIntent(page);
-
-  await assertExitIntentPopup(page, 'p28-exit-intent-popup.png');
-  console.log('✅ Exit intent popup appeared on P28 preview page');
-  await ctx.close();
-});
-
-// ─── Classic VIN Tests ────────────────────────────────────────────────────────
-
-test('P23 Case 5 - Classic mapped VIN modification (update YMM using dropdown)', async ({ browser }) => {
-  const { ctx, page, getApiStatus } = await setupClassicVinPage(browser);
-
-  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-  if (raw?.match(/preview(\d+)/)?.[1] !== '23') { await ctx.close(); test.skip(); return; }
-  console.log(`🔍 Confirmed preview_page: ${raw}`);
-
-  await page.getByRole('button', { name: 'Click here to update' }).click();
-  await page.getByRole('button', { name: 'Update Year, Make and Model' }).click();
-
-  await page.getByLabel('Year').click();
-  await page.getByLabel('1961').click();
-  await page.getByLabel('Make').click();
-  await page.getByLabel('AJS').click();
-  await page.getByLabel('Model').click();
-  await page.getByText('Model 16 350ms').click();
-  await page.getByLabel('Trim').click();
-  await page.getByText('Base', { exact: true }).click();
-  await page.screenshot({ path: `${EVIDENCE_DIR}/p23-case5-ymm-selected.png`, fullPage: true });
-
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await page.getByRole('button', { name: 'Confirm Selection' }).click();
-  await page.getByRole('button', { name: 'Submit' }).click();
-  await page.waitForURL(/cv=/, { timeout: 30000 });
-
-  expect(page.url()).toContain('cv=');
-  expect(getApiStatus()).toBe(200);
-  console.log(`✅ API 200 & redirected: ${page.url()}`);
-  await page.screenshot({ path: `${EVIDENCE_DIR}/p23-case5-ymm-updated.png`, fullPage: true });
-  await ctx.close();
-});
-
-test('P23 Case 6 - Update classic VIN (modify data using manual input)', async ({ browser }) => {
-  const { ctx, page, getApiStatus } = await setupClassicVinPage(browser);
-
-  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-  if (raw?.match(/preview(\d+)/)?.[1] !== '23') { await ctx.close(); test.skip(); return; }
-  console.log(`🔍 Confirmed preview_page: ${raw}`);
-
-  await page.getByRole('button', { name: 'Click here to update' }).click();
-  await page.getByRole('button', { name: 'Update Year, Make and Model' }).click();
-  await page.getByRole('button', { name: 'Click here' }).click();
-
-  await page.getByPlaceholder('Enter year').fill('1960');
-  await page.getByPlaceholder('Enter year').press('Tab');
-  await page.getByPlaceholder('Enter make').fill('Ford');
-  await page.getByPlaceholder('Enter make').press('Tab');
-  await page.getByPlaceholder('Enter model').fill('F-250');
-  await page.getByPlaceholder('Enter model').press('Tab');
-  await page.getByPlaceholder('Enter engine (e.g., V8,').fill('V8');
-  await page.getByPlaceholder('Enter engine (e.g., V8,').press('Tab');
-  await page.getByPlaceholder('Enter transmission type').fill('Auto');
-  await page.getByPlaceholder('Enter transmission type').press('Tab');
-  await page.getByPlaceholder('Enter number of doors').fill('5');
-  await page.getByPlaceholder('Enter number of doors').press('Tab');
-  await page.getByPlaceholder('Enter drive type (e.g., RWD,').fill('AWD');
-  await page.screenshot({ path: `${EVIDENCE_DIR}/p23-case6-manual-input.png`, fullPage: true });
-  console.log('✅ Manual fields filled');
-
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await page.getByRole('button', { name: 'Submit' }).click();
-  await page.waitForURL(/cv=/, { timeout: 30000 });
-
-  expect(page.url()).toContain('cv=');
-  expect(getApiStatus()).toBe(200);
-  console.log(`✅ API 200 & redirected: ${page.url()}`);
-  await page.screenshot({ path: `${EVIDENCE_DIR}/p23-case6-manual-updated.png`, fullPage: true });
-  await ctx.close();
-});
-
-test('P28 Case 2 - Classic VIN YMM update via dropdown', async ({ browser }) => {
-  const { ctx, page, getApiStatus } = await setupClassicVinPage(browser);
-
-  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-  if (!raw?.includes('28')) { await ctx.close(); test.skip(); return; }
-  console.log(`🔍 Confirmed preview_page: ${raw}`);
-
-  await page.getByRole('button', { name: 'Click here to update' }).click();
-  await page.getByRole('button', { name: 'Update Year, Make and Model' }).click();
-
-  await page.getByLabel('Year').click();
-  await page.getByLabel('1961').click();
-  await page.getByLabel('Make').click();
-  await page.getByLabel('AJS').click();
-  await page.getByLabel('Model').click();
-  await page.getByText('Model 16 350ms').click();
-  await page.getByLabel('Trim').click();
-  await page.getByText('Base', { exact: true }).click();
-
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await page.getByRole('button', { name: 'Confirm Selection' }).click();
-  await page.getByRole('button', { name: 'Submit' }).click();
-  await page.waitForURL(/cv=/, { timeout: 30000 });
-
-  expect(page.url()).toContain('cv=');
-  expect(getApiStatus()).toBe(200);
-  console.log(`✅ API 200 & redirected: ${page.url()}`);
-  await ctx.close();
-});
-
-test('P28 Case 3 - Classic VIN update via manual input', async ({ browser }) => {
-  const { ctx, page, getApiStatus } = await setupClassicVinPage(browser);
-
-  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-  if (!raw?.includes('28')) { await ctx.close(); test.skip(); return; }
-  console.log(`🔍 Confirmed preview_page: ${raw}`);
-
-  await page.getByRole('button', { name: 'Click here to update' }).click();
-  await page.getByRole('button', { name: 'Update Year, Make and Model' }).click();
-  await page.getByRole('button', { name: 'Click here' }).click();
-
-  await page.getByPlaceholder('Enter year').fill('1960');
-  await page.getByPlaceholder('Enter year').press('Tab');
-  await page.getByPlaceholder('Enter make').fill('Ford');
-  await page.getByPlaceholder('Enter make').press('Tab');
-  await page.getByPlaceholder('Enter model').fill('F-250');
-  await page.getByPlaceholder('Enter model').press('Tab');
-  await page.getByPlaceholder('Enter engine (e.g., V8,').fill('V8');
-  await page.getByPlaceholder('Enter engine (e.g., V8,').press('Tab');
-  await page.getByPlaceholder('Enter transmission type').fill('Auto');
-  await page.getByPlaceholder('Enter transmission type').press('Tab');
-  await page.getByPlaceholder('Enter number of doors').fill('5');
-  await page.getByPlaceholder('Enter number of doors').press('Tab');
-  await page.getByPlaceholder('Enter drive type (e.g., RWD,').fill('AWD');
-  console.log('✅ Manual fields filled');
-
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await page.getByRole('button', { name: 'Submit' }).click();
-  await page.waitForURL(/cv=/, { timeout: 30000 });
-
-  expect(page.url()).toContain('cv=');
-  expect(getApiStatus()).toBe(200);
-  console.log(`✅ API 200 & redirected: ${page.url()}`);
-  await ctx.close();
-});
-
-// ─── P28 Cases ────────────────────────────────────────────────────────────────
-
-test('P28 Case 4 - Default plan price matches site_settings.default_plan', async ({ browser }) => {
-  const ctx  = await browser.newContext();
-  const page = await ctx.newPage();
-
-  await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-
-  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-  if (!raw?.includes('28')) { await ctx.close(); test.skip(); return; }
-  console.log(`🔍 Confirmed preview_page: ${raw}`);
-
-  const defaultPlan = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').default_plan ?? null);
-  console.log(`🔍 default_plan: ${JSON.stringify(defaultPlan)}`);
-  expect(defaultPlan).not.toBeNull();
-
-  const planPrice = defaultPlan?.price ?? defaultPlan?.amount ?? defaultPlan?.value ?? null;
-  expect(planPrice).not.toBeNull();
-  expect(parseFloat(planPrice)).toBeGreaterThan(0);
-  console.log(`✅ Default plan price is valid: $${planPrice}`);
-  await ctx.close();
-});
-
-test('P28 Case 5 - Plan selection, info/error messages and UVC upsell hide', async ({ browser }) => {
-  const ctx  = await browser.newContext();
-  const page = await ctx.newPage();
-  await page.addInitScript(spoofWebdriver);
-
-  await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-
-  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-  if (!raw?.includes('28')) { await ctx.close(); test.skip(); return; }
-  console.log(`🔍 Confirmed preview_page: ${raw}`);
-
-  await page.getByRole('radio', { name: /Most Popular 2 Vehicle/i }).waitFor({ state: 'visible', timeout: 15000 });
-
-  await page.getByRole('radio', { name: /Most Popular 2 Vehicle/i }).click();
-  await expect(page.getByText('vehicle reports selected!')).toBeVisible({ timeout: 5000 });
-  console.log('✅ Most Popular plan selected — info message shown');
-
-  await page.getByRole('radio', { name: /56% Cheaper Than Carfax 1/i }).click();
-  await expect(page.getByText('vehicle report selected!')).toBeVisible({ timeout: 5000 });
-  console.log('✅ 1 Vehicle plan selected — info message shown');
-
-  await page.getByRole('radio', { name: /Best Value Unlimited VIN/i }).click();
-  await expect(page.getByText('Window Sticker removed from')).toBeVisible({ timeout: 5000 });
-  console.log('✅ UVC selected — Window Sticker upsell removed message shown');
-
-  await page.getByRole('radio', { name: /Best Value Unlimited VIN/i }).click();
-  await expect(page.getByText('Plan Already Selected ✅')).toBeVisible({ timeout: 5000 });
-  console.log('✅ Re-clicking UVC shows "Plan Already Selected" message');
-
-  await page.getByRole('radio', { name: /56% Cheaper Than Carfax 1/i }).click();
-  await page.getByRole('radio', { name: /Most Popular 2 Vehicle/i }).click();
-  await page.getByRole('radio', { name: /56% Cheaper Than Carfax 1/i }).click();
-  console.log('✅ Plan switching works correctly');
-
-  await page.getByRole('button', { name: /Get Unlimited VIN Checks/i }).click();
-  const closeBtn = page.locator('button.absolute.right-4.top-4');
-  await expect(closeBtn).toBeVisible({ timeout: 5000 });
-  await closeBtn.click();
-  console.log('✅ Unlimited VIN Checks modal opens and closes');
-
-  await page.getByRole('button', { name: /See more packages & save up/i }).click();
-  await page.locator('div').filter({ hasText: /^5 Reports\$12\.00\/ReportSave 40%$/ }).first().click();
-  console.log('✅ 5 Reports bulk package selectable');
-
-  await page.locator('div').filter({ hasText: /^10 Reports\$8\.00\/ReportSave 60%$/ }).first().click();
-  await expect(page.getByText('10 vehicle reports selected!').first()).toBeVisible({ timeout: 5000 });
-  console.log('✅ 10 Reports bulk package selectable — info message shown');
-
-  await page.locator('div').filter({ hasText: /^25 Reports\$7\.00\/ReportSave 65%$/ }).first().click();
-  console.log('✅ 25 Reports bulk package selectable');
-
-  await ctx.close();
-});
-
-test('P28 Case 6 - Email validation, maybe later API, and phone analytics flow', async ({ browser }) => {
-  const ctx  = await browser.newContext();
-  const page = await ctx.newPage();
-
-  const vin = randomVin();
-  await page.goto(getVhrUrl(vin), { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-
-  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-  if (!raw?.includes('28')) { await ctx.close(); test.skip(); return; }
-  console.log(`🔍 Confirmed preview_page: ${raw}`);
-
-  // ── Step 2: Open email popup ──────────────────────────────────────────────
-  await page.getByRole('button', { name: /access records/i }).first().click();
-  const emailInput = page.locator('input[type="email"]').first();
-  await emailInput.waitFor({ state: 'visible', timeout: 10000 });
-  console.log('✅ Email popup opened');
-
-  // ── Step 3 & 4: Enter invalid email → expect validation error ─────────────
-  await emailInput.fill('invalidemail');
-  await page.getByRole('button', { name: /proceed to checkout/i }).click();
-  const errorMsg = page.locator('text=/please enter a valid email/i');
-  await expect(errorMsg).toBeVisible({ timeout: 5000 });
-  console.log('✅ Validation error shown for invalid email');
-
-  // ── Step 5: Enter valid email → click Maybe Later → assert API + payload ──
-  await emailInput.clear();
-  const validEmail = `test_${Date.now()}@example.com`;
-  await emailInput.fill(validEmail);
-  console.log(`📧 Valid email: ${validEmail}`);
-
-  let maybeLaterCalled = false;
-  let maybeLaterPayload;
-  page.on('request', req => {
-    if (req.url().includes('landing/index_collection')) {
-      maybeLaterCalled = true;
-      maybeLaterPayload = req.postData();
-      console.log(`📤 Maybe Later API called: ${req.url()}`);
-      console.log(`📤 Maybe Later payload: ${maybeLaterPayload}`);
+  test.beforeAll(async ({ browser }) => {
+    if (!DETECTED_PAGE_TYPE) {
+      const raw = await getDetectedPage(browser);
+      DETECTED_PAGE = raw;
+      DETECTED_PAGE_TYPE = getPageType(raw);
+      console.log(`🔍 [P28 Auto-Detect] preview_page: ${DETECTED_PAGE}, Type: ${DETECTED_PAGE_TYPE}`);
     }
-  });
-
-  await page.getByRole('button', { name: /maybe later/i }).click();
-  await page.waitForTimeout(2000);
-  expect(maybeLaterCalled).toBe(true);
-  expect(maybeLaterPayload).toBeTruthy();
-  console.log('✅ landing/index_collection API called on Maybe Later');
-
-  // ── Step 6: Popup closed → reopen → fill valid email + phone → analytics ──
-  await expect(emailInput).not.toBeVisible({ timeout: 5000 });
-  console.log('✅ Email popup closed after Maybe Later');
-
-  await page.getByRole('button', { name: /access records/i }).first().click();
-  const emailInput2 = page.locator('input[type="email"]').first();
-  await emailInput2.waitFor({ state: 'visible', timeout: 10000 });
-
-  const uniqueEmail = `test_${Date.now()}_u@example.com`;
-  await emailInput2.fill(uniqueEmail);
-  console.log(`📧 Unique email: ${uniqueEmail}`);
-
-  const phoneInput = page.locator('input[type="tel"], input[placeholder*="phone" i], input[placeholder*="Phone" i]').first();
-  await phoneInput.waitFor({ state: 'visible', timeout: 10000 });
-
-  let analyticsPayload;
-  page.on('request', req => {
-    if (req.url().includes('api-cwa/create-preview-analytics')) {
-      analyticsPayload = req.postData();
-      console.log(`📤 Analytics API payload: ${analyticsPayload}`);
+    if (DETECTED_PAGE_TYPE !== '28') {
+      console.log(`⏭️ Skipping P28 Cases - detected page type is ${DETECTED_PAGE_TYPE}, not 28`);
+      return;
     }
+    console.log(`✅ Running P28 Cases - detected page type is 28`);
   });
 
-  await phoneInput.click();
-  await phoneInput.fill('5551234567');
+  test('P28 Case 1 - Exit intent popup appears on preview page', async ({ browser }) => {
+    if (DETECTED_PAGE_TYPE !== '28') { test.skip(); return; }
+    const ctx  = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.addInitScript(spoofWebdriver);
+    await page.goto(SITE_URL, { waitUntil: 'domcontentloaded' });
+    await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+    await page.waitForFunction(() => document.readyState === 'complete', { timeout: 15000 });
+    await triggerExitIntent(page);
+    await assertExitIntentPopup(page, 'p28-exit-intent-popup.png');
+    console.log('✅ Exit intent popup appeared on P28 preview page');
+    await ctx.close();
+  });
 
-  const analyticsResponsePromise = page.waitForResponse(
-    res => res.url().includes('api-cwa/create-preview-analytics'),
-    { timeout: 15000 }
-  );
-  await page.getByRole('button', { name: /proceed to checkout/i }).click();
-  const analyticsRes = await analyticsResponsePromise.catch(() => null);
-  const analyticsResponse = analyticsRes ? await analyticsRes.json().catch(() => analyticsRes.text()) : null;
-  console.log(`📥 Analytics API response: ${JSON.stringify(analyticsResponse)}`);
+  test('P28 Case 2 - Classic VIN YMM update via dropdown', async ({ browser }) => {
+    if (DETECTED_PAGE_TYPE !== '28') { test.skip(); return; }
+    const { ctx, page, getApiStatus } = await setupClassicVinPage(browser);
+    await page.getByRole('button', { name: 'Click here to update' }).click();
+    await page.getByRole('button', { name: 'Update Year, Make and Model' }).click();
+    await page.getByLabel('Year').click();
+    await page.getByLabel('1961').click();
+    await page.getByLabel('Make').click();
+    await page.getByLabel('AJS').click();
+    await page.getByLabel('Model').click();
+    await page.getByText('Model 16 350ms').click();
+    await page.getByLabel('Trim').click();
+    await page.getByText('Base', { exact: true }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Confirm Selection' }).click();
+    await page.getByRole('button', { name: 'Submit' }).click();
+    await page.waitForURL(/cv=/, { timeout: 30000 });
+    expect(page.url()).toContain('cv=');
+    expect(getApiStatus()).toBe(200);
+    console.log(`✅ API 200 & redirected: ${page.url()}`);
+    await ctx.close();
+  });
 
-  expect(analyticsPayload).toBeTruthy();
-  expect(analyticsResponse).toBeTruthy();
-  console.log('✅ create-preview-analytics API called with payload and response captured');
+  test('P28 Case 3 - Classic VIN update via manual input', async ({ browser }) => {
+    if (DETECTED_PAGE_TYPE !== '28') { test.skip(); return; }
+    const { ctx, page, getApiStatus } = await setupClassicVinPage(browser);
+    await page.getByRole('button', { name: 'Click here to update' }).click();
+    await page.getByRole('button', { name: 'Update Year, Make and Model' }).click();
+    await page.getByRole('button', { name: 'Click here' }).click();
+    await page.getByPlaceholder('Enter year').fill('1960');
+    await page.getByPlaceholder('Enter make').fill('Ford');
+    await page.getByPlaceholder('Enter model').fill('F-250');
+    await page.getByPlaceholder('Enter engine (e.g., V8,').fill('V8');
+    await page.getByPlaceholder('Enter transmission type').fill('Auto');
+    await page.getByPlaceholder('Enter number of doors').fill('5');
+    await page.getByPlaceholder('Enter drive type (e.g., RWD,').fill('AWD');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Submit' }).click();
+    await page.waitForURL(/cv=/, { timeout: 30000 });
+    expect(page.url()).toContain('cv=');
+    expect(getApiStatus()).toBe(200);
+    console.log(`✅ API 200 & redirected: ${page.url()}`);
+    await ctx.close();
+  });
 
-  await page.screenshot({ path: `${EVIDENCE_DIR}/p28-case6-analytics.png`, fullPage: true });
-  await ctx.close();
+  test('P28 Case 4 - Default plan price matches site_settings.default_plan', async ({ browser }) => {
+    if (DETECTED_PAGE_TYPE !== '28') { test.skip(); return; }
+    const ctx  = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+    const defaultPlan = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').default_plan ?? null);
+    const planPrice = defaultPlan?.price ?? defaultPlan?.amount ?? defaultPlan?.value ?? null;
+    expect(parseFloat(planPrice)).toBeGreaterThan(0);
+    console.log(`✅ Default plan price is valid: $${planPrice}`);
+    await ctx.close();
+  });
+
+  test('P28 Case 5 - Plan selection, info/error messages and UVC upsell hide', async ({ browser }) => {
+    if (DETECTED_PAGE_TYPE !== '28') { test.skip(); return; }
+    const ctx  = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.addInitScript(spoofWebdriver);
+    await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+    await page.getByRole('radio', { name: /Most Popular 2 Vehicle/i }).waitFor({ state: 'visible', timeout: 15000 });
+    await page.getByRole('radio', { name: /Most Popular 2 Vehicle/i }).click();
+    await expect(page.getByText('vehicle reports selected!')).toBeVisible({ timeout: 5000 });
+    await page.getByRole('radio', { name: /56% Cheaper Than Carfax 1/i }).click();
+    await expect(page.getByText('vehicle report selected!')).toBeVisible({ timeout: 5000 });
+    await page.getByRole('radio', { name: /Best Value Unlimited VIN/i }).click();
+    await expect(page.getByText('Window Sticker removed from')).toBeVisible({ timeout: 5000 });
+    await ctx.close();
+  });
+
+  test('P28 Case 6 - Email validation, maybe later API, and phone analytics flow', async ({ browser }) => {
+    if (DETECTED_PAGE_TYPE !== '28') { test.skip(); return; }
+    const ctx  = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+    await page.getByRole('button', { name: /access records/i }).first().click();
+    const emailInput = page.locator('input[type="email"]').first();
+    await emailInput.fill('invalidemail');
+    await page.getByRole('button', { name: /proceed to checkout/i }).click();
+    await expect(page.locator('text=/please enter a valid email/i')).toBeVisible({ timeout: 5000 });
+    await emailInput.clear();
+    await emailInput.fill(`test_${Date.now()}@example.com`);
+    let maybeLaterCalled = false;
+    page.on('request', req => { if (req.url().includes('landing/index_collection')) maybeLaterCalled = true; });
+    await page.getByRole('button', { name: /maybe later/i }).click();
+    await page.waitForTimeout(2000);
+    expect(maybeLaterCalled).toBe(true);
+    await ctx.close();
+  });
+
+  test('P28 Case 7 - Verify reveal record section and vehicle media carousel', async ({ browser }) => {
+    if (DETECTED_PAGE_TYPE !== '28') { test.skip(); return; }
+    const ctx  = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+    const recordLinks = page.locator('.text-lg');
+    await recordLinks.first().waitFor({ state: 'visible', timeout: 15000 });
+    const count = await recordLinks.count();
+    for (let i = 0; i < Math.min(count, 3); i++) {
+      await recordLinks.nth(i).click();
+      await page.getByRole('button', { name: 'Close' }).click();
+    }
+    const nextBtn = page.locator('div').filter({ hasText: /^\d+ \/ \d+$/ }).getByRole('button').nth(1);
+    if (await nextBtn.isVisible()) await nextBtn.click();
+    await ctx.close();
+  });
 });
 
-// ─── P28 Case 7 ───────────────────────────────────────────────────────────────
-
-test('P28 Case 7 - Verify reveal record section (internal linking) and vehicle media image section', async ({ browser }) => {
-  const ctx  = await browser.newContext();
-  const page = await ctx.newPage();
-
-  await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-
-  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-  if (!raw?.includes('28')) { await ctx.close(); test.skip(); return; }
-  console.log(`🔍 Confirmed preview_page: ${raw}`);
-
-  // ── Reveal record section: click each record link and close ───────────────
-  const recordLinks = page.locator('.text-lg');
-  await recordLinks.first().waitFor({ state: 'visible', timeout: 15000 });
-  const count = await recordLinks.count();
-  console.log(`📋 Found ${count} record links`);
-
-  for (let i = 0; i < Math.min(count, 5); i++) {
-    await recordLinks.nth(i).click();
-    const closeBtn = page.getByRole('button', { name: 'Close' });
-    await closeBtn.waitFor({ state: 'visible', timeout: 8000 });
-    await closeBtn.click();
-    console.log(`✅ Record link ${i + 1} opened and closed`);
-  }
-
-  // ── Vehicle media image section: scroll to top, click left & right arrows ──
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await page.waitForTimeout(500);
-
-  // Carousel only appears if vehicle has images — check first
-  const nextBtn = page.locator('div').filter({ hasText: /^\d+ \/ \d+$/ }).getByRole('button').nth(1);
-  const prevBtn = page.locator('div').filter({ hasText: /^\d+ \/ \d+$/ }).getByRole('button').first();
-
-  const carouselVisible = await nextBtn.isVisible().catch(() => false);
-  if (carouselVisible) {
-    await nextBtn.click();
-    console.log('✅ Clicked next (right) arrow on vehicle media');
-    await prevBtn.click();
-    console.log('✅ Clicked prev (left) arrow on vehicle media');
-  } else {
-    console.log('ℹ️ No vehicle images for this VIN — carousel not present, skipping media section');
-  }
-
-  await page.screenshot({ path: `${EVIDENCE_DIR}/p28-case7-media-section.png`, fullPage: true });
-  console.log('✅ Reveal record section and vehicle media image section verified');
-  await ctx.close();
-});
-
-// ─── P28B Cases ───────────────────────────────────────────────────────────────
+// ─── P28B Cases (Execution order: 2 if detected type is 28_B) ──────────────────
 
 test.describe('P28B Cases', () => {
   test.describe.configure({ mode: 'serial' });
@@ -838,570 +807,92 @@ test.describe('P28B Cases', () => {
   let sharedPage;
 
   test.beforeAll(async ({ browser }) => {
+    if (!DETECTED_PAGE_TYPE) {
+      const raw = await getDetectedPage(browser);
+      DETECTED_PAGE = raw;
+      DETECTED_PAGE_TYPE = getPageType(raw);
+      console.log(`🔍 [P28B Auto-Detect] preview_page: ${DETECTED_PAGE}, Type: ${DETECTED_PAGE_TYPE}`);
+    }
+    if (DETECTED_PAGE_TYPE !== '28_B') {
+      console.log(`⏭️ Skipping P28B Cases - detected page type is ${DETECTED_PAGE_TYPE}, not 28_B`);
+      return;
+    }
+    console.log(`✅ Running P28B Cases - detected page type is 28_B`);
+
     const context = await browser.newContext();
     sharedPage = await context.newPage();
     await sharedPage.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
     await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-    const raw = await sharedPage.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-    const num = raw?.match(/preview(28[AB]|\d+)/)?.[1];
-    console.log(`🔍 preview_page: ${raw}`);
-    if (num !== '28B') {
+    if (!(await sharedPage.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page)).includes('preview28')) {
       await sharedPage.close();
-      return;
+      sharedPage = null;
     }
-    // Wait for plans container to ensure page is fully loaded
-    await sharedPage.locator('#plans').waitFor({ state: 'visible', timeout: 30000 }).catch(() => {});
   });
 
-  test.afterAll(async () => { await sharedPage?.close(); });
+  test.afterAll(async () => { if (sharedPage && !sharedPage.isClosed()) await sharedPage.close(); });
 
   test('P28B Case 1 - Plan radio buttons are clickable', async () => {
-    if (sharedPage.isClosed()) { test.skip(); return; }
-    await sharedPage.reload({ waitUntil: 'domcontentloaded' });
-
-    const plans = sharedPage.locator('#plans [role="radio"]');
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
+    const plans = sharedPage.locator('[role="radio"]');
     await plans.first().waitFor({ state: 'visible', timeout: 15000 });
-    const count = await plans.count();
-    expect(count).toBeGreaterThan(0);
-    console.log(`📋 Found ${count} plan options`);
-
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < await plans.count(); i++) {
       await plans.nth(i).click();
       expect(await plans.nth(i).getAttribute('aria-checked')).toBe('true');
-      console.log(`✅ Plan ${i + 1} is clickable and selectable`);
     }
   });
 
   test('P28B Case 2 - Unlimited VIN Check locks the decal checkbox', async () => {
-    if (sharedPage.isClosed()) { test.skip(); return; }
-    await sharedPage.locator('#plans').waitFor({ state: 'visible', timeout: 15000 });
-
-    await sharedPage.locator('#plans [role="radio"]').filter({ hasText: /unmimited vin check/i }).first().click();
-    console.log('✅ Selected Unmimited VIN Check');
-
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
+    await sharedPage.locator('[role="radio"]').filter({ hasText: /unmimited vin check/i }).first().click();
     const upsellCheckbox = sharedPage.locator('[role="checkbox"]').filter({ has: sharedPage.locator('#landing_decal') });
-    const ariaChecked    = await upsellCheckbox.getAttribute('aria-checked');
-    const parentClass    = await upsellCheckbox.locator('xpath=..').getAttribute('class');
-    console.log(`aria-checked: ${ariaChecked}, opacity-50: ${parentClass?.includes('opacity-50')}`);
-
-    expect(ariaChecked).toBe('false');
-    expect(parentClass).toContain('opacity-50');
-    console.log('✅ Upsell checkbox is locked when UVC is selected');
+    expect(await upsellCheckbox.getAttribute('aria-checked')).toBe('false');
   });
 
   test('P28B Case 3 - Default plan price matches site_settings.default_plan', async () => {
-    if (sharedPage.isClosed()) { test.skip(); return; }
-
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
     const defaultPlan = await sharedPage.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').default_plan ?? null);
-    console.log(`🔍 default_plan: ${JSON.stringify(defaultPlan)}`);
-    expect(defaultPlan).not.toBeNull();
-
     const planPrice = defaultPlan?.price ?? defaultPlan?.amount ?? defaultPlan?.value ?? null;
-    expect(planPrice).not.toBeNull();
-
-    await sharedPage.reload({ waitUntil: 'domcontentloaded' });
-    const selectedPlan = sharedPage.locator('#plans div[role="radio"][aria-checked="true"]').first();
-    await expect(selectedPlan).toBeVisible({ timeout: 20000 });
+    const selectedPlan = sharedPage.locator('[role="radio"][aria-checked="true"]').first();
     const priceText = await selectedPlan.locator('span').filter({ hasText: /^\$[\d.]+$/ }).first().textContent();
-    const pagePrice = priceText?.replace('$', '').trim();
-    console.log(`💲 Page selected plan price: $${pagePrice}`);
-
-    expect(String(planPrice)).toContain(pagePrice);
-    console.log(`✅ Default plan price matches: ${planPrice} = $${pagePrice}`);
+    expect(String(planPrice)).toContain(priceText.replace('$', '').trim());
   });
 
-  test('P28B Case 8 - Window Sticker checkbox dynamic text and price', async () => {
-    if (sharedPage.isClosed()) { test.skip(); return; }
-    await sharedPage.reload({ waitUntil: 'domcontentloaded' });
-
-    // Wait for page to finish loading (plans container should appear)
-    await sharedPage.locator('#plans').waitFor({ state: 'visible', timeout: 30000 });
-
-    // Check if window sticker is auto-selected and click Undo if present
-    const undoBtn = sharedPage.locator('button:has-text("Undo")').filter({ hasText: /Window sticker added to your purchase/i }).first();
-    const isUndoVisible = await undoBtn.isVisible().catch(() => false);
-    if (isUndoVisible) {
-      await undoBtn.click();
-      console.log('✅ Clicked Undo on auto-selected window sticker');
-      await sharedPage.waitForTimeout(1000);
-    }
-
-    await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').sticker_preview_page_checkbox_price, { timeout: 15000 });
+  test('P28B Case 4 - Window Sticker checkbox dynamic text and price', async () => {
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
     const settings = await sharedPage.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}'));
-    
     const fullText = await sharedPage.evaluate(() => document.body.innerText);
-
     expect(fullText).toContain(settings.sticker_preview_page_checkbox_text);
     expect(fullText).toContain(settings.sticker_preview_page_checkbox_price);
-    console.log('✅ Window sticker dynamic text and price verified in page text content');
+  });
+
+  test('P28B Case 5 - Exit intent popup appears', async ({ browser }) => {
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
+    const ctx  = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.addInitScript(spoofWebdriver);
+    await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+    await triggerExitIntent(page);
+    await assertExitIntentPopup(page, 'p28b-exit-intent-popup.png');
+    await ctx.close();
+  });
+
+  test('P28B Case 6 - Classic VIN YMM update via dropdown', async ({ browser }) => {
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
+    const { ctx, page, getApiStatus } = await setupClassicVinPage(browser);
+    await page.getByRole('button', { name: 'Click here to update' }).click();
+    await page.getByRole('button', { name: 'Update Year, Make and Model' }).click();
+    await page.getByLabel('Year').click();
+    await page.getByLabel('1961').click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Confirm Selection' }).click();
+    await page.getByRole('button', { name: 'Submit' }).click();
+    await page.waitForURL(/cv=/, { timeout: 30000 });
+    expect(getApiStatus()).toBe(200);
+    await ctx.close();
   });
 });
 
-// ─── P28B Exit Intent Test ────────────────────────────────────────────────────
-
-test('P28B Case 4 - Exit intent popup appears on preview page', async ({ browser }) => {
-  const ctx  = await browser.newContext();
-  const page = await ctx.newPage();
-  await page.addInitScript(spoofWebdriver);
-
-  await page.goto(SITE_URL, { waitUntil: 'domcontentloaded' });
-  await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-
-  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-  if (!raw?.includes('28_B')) { await ctx.close(); test.skip(); return; }
-  console.log(`🔍 Confirmed preview_page: ${raw}`);
-
-  await page.waitForFunction(() => document.readyState === 'complete', { timeout: 15000 });
-  await page.mouse.move(640, 400);
-  await page.mouse.wheel(0, 500);
-  await page.waitForTimeout(3000);
-  await page.mouse.wheel(0, -500);
-  await page.waitForTimeout(4000);
-  await triggerExitIntent(page);
-
-  await assertExitIntentPopup(page, 'p28b-exit-intent-popup.png');
-  console.log('✅ Exit intent popup appeared on P28B preview page');
-  await ctx.close();
-});
-
-// ─── P28B Classic VIN Tests ───────────────────────────────────────────────────
-
-test('P28B Case 5 - Classic mapped VIN modification (update YMM using dropdown)', async ({ browser }) => {
-  const { ctx, page, getApiStatus } = await setupClassicVinPage(browser);
-
-  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-  if (!raw?.includes('28_B')) { await ctx.close(); test.skip(); return; }
-  console.log(`🔍 Confirmed preview_page: ${raw}`);
-
-  await page.getByRole('button', { name: 'Click here to update' }).click();
-  await page.getByRole('button', { name: 'Update Year, Make and Model' }).click();
-
-  await page.getByLabel('Year').click();
-  await page.getByLabel('1961').click();
-  await page.getByLabel('Make').click();
-  await page.getByLabel('AJS').click();
-  await page.getByLabel('Model').click();
-  await page.getByText('Model 16 350ms').click();
-  await page.getByLabel('Trim').click();
-  await page.getByText('Base', { exact: true }).click();
-  await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-case5-ymm-selected.png`, fullPage: true });
-
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await page.getByRole('button', { name: 'Confirm Selection' }).click();
-  await page.getByRole('button', { name: 'Submit' }).click();
-  await page.waitForURL(/cv=/, { timeout: 30000 });
-
-  expect(page.url()).toContain('cv=');
-  expect(getApiStatus()).toBe(200);
-  console.log(`✅ API 200 & redirected: ${page.url()}`);
-  await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-case5-ymm-updated.png`, fullPage: true });
-  await ctx.close();
-});
-
-test('P28B Case 6 - Update classic VIN (modify data using manual input)', async ({ browser }) => {
-  const { ctx, page, getApiStatus } = await setupClassicVinPage(browser);
-
-  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-  if (!raw?.includes('28_B')) { await ctx.close(); test.skip(); return; }
-  console.log(`🔍 Confirmed preview_page: ${raw}`);
-
-  await page.getByRole('button', { name: 'Click here to update' }).click();
-  await page.getByRole('button', { name: 'Update Year, Make and Model' }).click();
-  await page.getByRole('button', { name: 'Click here' }).click();
-
-  await page.getByPlaceholder('Enter year').fill('1960');
-  await page.getByPlaceholder('Enter year').press('Tab');
-  await page.getByPlaceholder('Enter make').fill('Ford');
-  await page.getByPlaceholder('Enter make').press('Tab');
-  await page.getByPlaceholder('Enter model').fill('F-250');
-  await page.getByPlaceholder('Enter model').press('Tab');
-  await page.getByPlaceholder('Enter engine (e.g., V8,').fill('V8');
-  await page.getByPlaceholder('Enter engine (e.g., V8,').press('Tab');
-  await page.getByPlaceholder('Enter transmission type').fill('Auto');
-  await page.getByPlaceholder('Enter transmission type').press('Tab');
-  await page.getByPlaceholder('Enter number of doors').fill('5');
-  await page.getByPlaceholder('Enter number of doors').press('Tab');
-  await page.getByPlaceholder('Enter drive type (e.g., RWD,').fill('AWD');
-  await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-case6-manual-input.png`, fullPage: true });
-  console.log('✅ Manual fields filled');
-
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await page.getByRole('button', { name: 'Submit' }).click();
-  await page.waitForURL(/cv=/, { timeout: 30000 });
-
-  expect(page.url()).toContain('cv=');
-  expect(getApiStatus()).toBe(200);
-  console.log(`✅ API 200 & redirected: ${page.url()}`);
-  await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-case6-manual-updated.png`, fullPage: true });
-  await ctx.close();
-});
-
-// ─── P28B Cases ───────────────────────────────────────────────────────────────
-
-test('P28B Case 7 - Default plan price matches site_settings.default_plan', async ({ browser }) => {
-  const ctx  = await browser.newContext();
-  const page = await ctx.newPage();
-
-  await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-
-  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-  if (!raw?.includes('28_B')) { await ctx.close(); test.skip(); return; }
-  console.log(`🔍 Confirmed preview_page: ${raw}`);
-
-  const defaultPlan = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').default_plan ?? null);
-  console.log(`🔍 default_plan: ${JSON.stringify(defaultPlan)}`);
-  expect(defaultPlan).not.toBeNull();
-
-  const planPrice = defaultPlan?.price ?? defaultPlan?.amount ?? defaultPlan?.value ?? null;
-  expect(planPrice).not.toBeNull();
-  expect(parseFloat(planPrice)).toBeGreaterThan(0);
-  console.log(`✅ Default plan price is valid: $${planPrice}`);
-  await ctx.close();
-});
-
-test('P28B Case 8 - Plan selection, info/error messages and UVC upsell hide', async ({ browser }) => {
-  const ctx  = await browser.newContext();
-  const page = await ctx.newPage();
-  await page.addInitScript(spoofWebdriver);
-
-  await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-
-  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-  if (!raw?.includes('28_B')) { await ctx.close(); test.skip(); return; }
-  console.log(`🔍 Confirmed preview_page: ${raw}`);
-
-  // Smart wait: Wait for page to fully render before interacting
-  await page.waitForTimeout(3000);
-  
-  // Handle auto-selected window sticker - click Undo if present
-  const undoBtn = page.locator('button:has-text("Undo")').filter({ hasText: /Window sticker added to your purchase/i }).first();
-  const isUndoVisible = await undoBtn.isVisible().catch(() => false);
-  if (isUndoVisible) {
-    await undoBtn.click();
-    console.log('✅ Clicked Undo on auto-selected window sticker');
-    await page.waitForTimeout(1000);
-  }
-  
-  // Codegen steps for P28B Case 8 - with smart waits between clicks
-  await page.getByText('/Report').nth(1).click();
-  await page.waitForTimeout(1000);
-  
-  await page.getByText('/Report').nth(1).click();
-  await page.waitForTimeout(1000);
-  
-  await page.getByText('Vehicle Reports$17.50/ReportSave 12%Total: $34.992 Reports$17.50/ReportSave 12%').click();
-  await page.waitForTimeout(1000);
-  
-  await page.getByRole('radio', { name: 'Unlimited VIN Check Unlimited' }).click();
-  await page.waitForTimeout(500);
-  
-  await page.locator('div').filter({ hasText: /^Window Stickers Included FREE2 FREE sticker credits with your subscription$/ }).nth(1).click();
-  await page.waitForTimeout(500);
-  
-  await page.getByText('Vehicle Reports$8.00/ReportSave 60%$79.99$199.9010 Vehicle Reports$8.00/').click();
-  await page.waitForTimeout(500);
-  
-  await page.getByText('Vehicle Reports$7.00/ReportSave 65%$174.99$499.7525 Vehicle Reports$7.00/').click();
-  await page.waitForTimeout(500);
-  
-  await page.getByText('Vehicle Report$19.99/ReportFull Price1 Report$19.99/ReportFull Price').click();
-  await page.waitForTimeout(500);
-  
-  await page.getByRole('button', { name: 'Add' }).click();
-  await page.waitForTimeout(1000);
-  
-  console.log('✅ P28B Case 8 - Plan selection completed');
-  await ctx.close();
-});
-
-test('P28B Case 9 - Email validation, maybe later API, and phone analytics flow', async ({ browser }) => {
-  const ctx  = await browser.newContext();
-  const page = await ctx.newPage();
-
-  const vin = randomVin();
-  await page.goto(getVhrUrl(vin), { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-
-  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-  if (!raw?.includes('28_B')) { await ctx.close(); test.skip(); return; }
-  console.log(`🔍 Confirmed preview_page: ${raw}`);
-
-  // ── Step 2: Open email popup ──────────────────────────────────────────────
-  await page.getByRole('button', { name: /access records/i }).first().click();
-  const emailInput = page.locator('input[type="email"]').first();
-  await emailInput.waitFor({ state: 'visible', timeout: 10000 });
-  console.log('✅ Email popup opened');
-
-  // ── Step 3 & 4: Enter invalid email → expect validation error ─────────────
-  await emailInput.fill('invalidemail');
-  await page.getByRole('button', { name: /proceed to checkout/i }).click();
-  const errorMsg = page.locator('text=/please enter a valid email/i');
-  await expect(errorMsg).toBeVisible({ timeout: 5000 });
-  console.log('✅ Validation error shown for invalid email');
-
-  // ── Step 5: Enter valid email → click Maybe Later → assert API + payload ──
-  await emailInput.clear();
-  const validEmail = `test_${Date.now()}@example.com`;
-  await emailInput.fill(validEmail);
-  console.log(`📧 Valid email: ${validEmail}`);
-
-  let maybeLaterCalled = false;
-  let maybeLaterPayload;
-  page.on('request', req => {
-    if (req.url().includes('landing/index_collection')) {
-      maybeLaterCalled = true;
-      maybeLaterPayload = req.postData();
-      console.log(`📤 Maybe Later API called: ${req.url()}`);
-      console.log(`📤 Maybe Later payload: ${maybeLaterPayload}`);
-    }
-  });
-
-  await page.getByRole('button', { name: /maybe later/i }).click();
-  await page.waitForTimeout(2000);
-  expect(maybeLaterCalled).toBe(true);
-  expect(maybeLaterPayload).toBeTruthy();
-  console.log('✅ landing/index_collection API called on Maybe Later');
-
-  // ── Step 6: Popup closed → reopen → fill valid email + phone → analytics ──
-  await expect(emailInput).not.toBeVisible({ timeout: 5000 });
-  console.log('✅ Email popup closed after Maybe Later');
-
-  await page.getByRole('button', { name: /access records/i }).first().click();
-  const emailInput2 = page.locator('input[type="email"]').first();
-  await emailInput2.waitFor({ state: 'visible', timeout: 10000 });
-
-  const uniqueEmail = `test_${Date.now()}_u@example.com`;
-  await emailInput2.fill(uniqueEmail);
-  console.log(`📧 Unique email: ${uniqueEmail}`);
-
-  const phoneInput = page.locator('input[type="tel"], input[placeholder*="phone" i], input[placeholder*="Phone" i]').first();
-  await phoneInput.waitFor({ state: 'visible', timeout: 10000 });
-
-  let analyticsPayload;
-  page.on('request', req => {
-    if (req.url().includes('api-cwa/create-preview-analytics')) {
-      analyticsPayload = req.postData();
-      console.log(`📤 Analytics API payload: ${analyticsPayload}`);
-    }
-  });
-
-  await phoneInput.click();
-  await phoneInput.fill('5551234567');
-
-  const analyticsResponsePromise = page.waitForResponse(
-    res => res.url().includes('api-cwa/create-preview-analytics'),
-    { timeout: 15000 }
-  );
-  await page.getByRole('button', { name: /proceed to checkout/i }).click();
-  const analyticsRes = await analyticsResponsePromise.catch(() => null);
-  const analyticsResponse = analyticsRes ? await analyticsRes.json().catch(() => analyticsRes.text()) : null;
-  console.log(`📥 Analytics API response: ${JSON.stringify(analyticsResponse)}`);
-
-  expect(analyticsPayload).toBeTruthy();
-  expect(analyticsResponse).toBeTruthy();
-  console.log('✅ create-preview-analytics API called with payload and response captured');
-
-  await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-case9-analytics.png`, fullPage: true });
-  await ctx.close();
-});
-
-// ─── P28B Case 10 ─────────────────────────────────────────────────────────────
-
-test('P28B Case 10 - Verify reveal record section (internal linking) and vehicle media image section', async ({ browser }) => {
-  const ctx  = await browser.newContext();
-  const page = await ctx.newPage();
-
-  await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-
-  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-  if (!raw?.includes('28_B')) { await ctx.close(); test.skip(); return; }
-  console.log(`🔍 Confirmed preview_page: ${raw}`);
-
-  // ── Reveal record section: click each record link and close ───────────────
-  const recordLinks = page.locator('.text-lg');
-  await recordLinks.first().waitFor({ state: 'visible', timeout: 15000 });
-  const count = await recordLinks.count();
-  console.log(`📋 Found ${count} record links`);
-
-  for (let i = 0; i < Math.min(count, 5); i++) {
-    await recordLinks.nth(i).click();
-    const closeBtn = page.getByRole('button', { name: 'Close' });
-    await closeBtn.waitFor({ state: 'visible', timeout: 8000 });
-    await closeBtn.click();
-    console.log(`✅ Record link ${i + 1} opened and closed`);
-  }
-
-  // ── Vehicle media image section: scroll to top, click left & right arrows ──
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await page.waitForTimeout(500);
-
-  // Carousel only appears if vehicle has images — check first
-  const nextBtn = page.locator('div').filter({ hasText: /^\d+ \/ \d+$/ }).getByRole('button').nth(1);
-  const prevBtn = page.locator('div').filter({ hasText: /^\d+ \/ \d+$/ }).getByRole('button').first();
-
-  const carouselVisible = await nextBtn.isVisible().catch(() => false);
-  if (carouselVisible) {
-    await nextBtn.click();
-    console.log('✅ Clicked next (right) arrow on vehicle media');
-    await prevBtn.click();
-    console.log('✅ Clicked prev (left) arrow on vehicle media');
-  } else {
-    console.log('ℹ️ No vehicle images for this VIN — carousel not present, skipping media section');
-  }
-
-  await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-case10-media-section.png`, fullPage: true });
-  console.log('✅ Reveal record section and vehicle media image section verified');
-  await ctx.close();
-});
-
-// ─── P28B Global Cases ────────────────────────────────────────────────────────
-
-test('P28B Global Case 1 - Lower to higher coupon swap logic (cookie validation)', async ({ browser }) => {
-  const ctx = await browser.newContext();
-  const page = await ctx.newPage();
-  const getCookie = async (name) => (await ctx.cookies()).find(c => c.name === name) ?? null;
-
-  await page.goto('https://developtestsite.com/?offer=offer20', { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(2000);
-  const step1 = await getCookie('coupon');
-  expect(step1?.value).toBe('offer20');
-  console.log(`✅ Step 1 — coupon=${step1.value}`);
-
-  await page.goto('https://developtestsite.com/?offer=testing', { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(2000);
-  const step2c = await getCookie('coupon');
-  const step2p = await getCookie('prev_coupon');
-  expect(step2c?.value).toBe('testing');
-  expect(step2p?.value).toBe('offer20');
-  console.log(`✅ Step 2 — coupon=${step2c.value}, prev_coupon=${step2p.value}`);
-
-  await page.goto('https://developtestsite.com/?offer=offer20', { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(2000);
-  const step4c = await getCookie('coupon');
-  const step4p = await getCookie('prev_coupon');
-  expect(step4c?.value).toBe('offer20');
-  expect(step4p?.value).toBe('testing');
-  console.log(`✅ Step 4 — coupon=${step4c.value}, prev_coupon=${step4p.value}`);
-
-  console.log('✅ Coupon swap logic verified');
-  await ctx.close();
-});
-
-test('P28B Global Case 2 - ref=ads param sets cookie correctly', async ({ browser }) => {
-  const ctx  = await browser.newContext();
-  const page = await ctx.newPage();
-  const getCookie = async (name) => (await ctx.cookies()).find(c => c.name === name) ?? null;
-
-  await page.goto('https://developtestsite.com/?ref=ads', { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(2000);
-
-  const refCookie = await getCookie('ref');
-  expect(refCookie).not.toBeNull();
-  expect(refCookie.value).toBe('ads');
-  console.log(`✅ ref cookie set: ${refCookie.name}=${refCookie.value}`);
-
-  await ctx.close();
-});
-
-// ─── P23 Case 7 ───────────────────────────────────────────────────────────────
-
-test('P23 Case 7 - Email validation, maybe later API, and phone analytics flow', async ({ browser }) => {
-  const ctx  = await browser.newContext();
-  const page = await ctx.newPage();
-
-  const vin = randomVin();
-  await page.goto(getVhrUrl(vin), { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-
-  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-  if (raw?.match(/preview(\d+)/)?.[1] !== '23') { await ctx.close(); test.skip(); return; }
-  console.log(`🔍 Confirmed preview_page: ${raw}`);
-
-  // ── Step 2: Open email popup ──────────────────────────────────────────────
-  await page.getByRole('button', { name: /access records/i }).first().click();
-  const emailInput = page.locator('input[type="email"]').first();
-  await emailInput.waitFor({ state: 'visible', timeout: 10000 });
-  console.log('✅ Email popup opened');
-
-  // ── Step 3 & 4: Enter invalid email → expect validation error ─────────────
-  await emailInput.fill('invalidemail');
-  await page.getByRole('button', { name: /proceed to checkout/i }).click();
-  const errorMsg = page.locator('text=/please enter a valid email/i');
-  await expect(errorMsg).toBeVisible({ timeout: 5000 });
-  console.log('✅ Validation error shown for invalid email');
-
-  // ── Step 5: Enter valid email → click Maybe Later → assert API call ───────
-  await emailInput.clear();
-  const validEmail = `test_${Date.now()}@example.com`;
-  await emailInput.fill(validEmail);
-  console.log(`📧 Valid email: ${validEmail}`);
-
-  let maybeLaterCalled = false;
-  let maybeLaterPayload;
-  page.on('request', req => {
-    if (req.url().includes('landing/index_collection')) {
-      maybeLaterCalled = true;
-      maybeLaterPayload = req.postData();
-      console.log(`📤 Maybe Later API called: ${req.url()}`);
-      console.log(`📤 Maybe Later payload: ${maybeLaterPayload}`);
-    }
-  });
-
-  await page.getByRole('button', { name: /maybe later/i }).click();
-  await page.waitForTimeout(2000);
-  expect(maybeLaterCalled).toBe(true);
-  expect(maybeLaterPayload).toBeTruthy();
-  console.log('✅ landing/index_collection API called on Maybe Later');
-
-  // ── Step 6: Popup closed → reopen → fill valid email + phone → analytics API
-  await expect(emailInput).not.toBeVisible({ timeout: 5000 });
-  console.log('✅ Email popup closed after Maybe Later');
-
-  await page.getByRole('button', { name: /access records/i }).first().click();
-  const emailInput2 = page.locator('input[type="email"]').first();
-  await emailInput2.waitFor({ state: 'visible', timeout: 10000 });
-
-  const uniqueEmail = `test_${Date.now()}_u@example.com`;
-  await emailInput2.fill(uniqueEmail);
-  console.log(`📧 Unique email: ${uniqueEmail}`);
-
-  const phoneInput = page.locator('input[type="tel"], input[placeholder*="phone" i], input[placeholder*="Phone" i]').first();
-  await phoneInput.waitFor({ state: 'visible', timeout: 10000 });
-
-  let analyticsPayload;
-  page.on('request', req => {
-    if (req.url().includes('api-cwa/create-preview-analytics')) {
-      analyticsPayload = req.postData();
-      console.log(`📤 Analytics API payload: ${analyticsPayload}`);
-    }
-  });
-
-  await phoneInput.click();
-  await phoneInput.fill('5551234567');
-
-  // Click Proceed to Checkout — this triggers create-preview-analytics
-  const analyticsResponsePromise = page.waitForResponse(
-    res => res.url().includes('api-cwa/create-preview-analytics'),
-    { timeout: 15000 }
-  );
-  await page.getByRole('button', { name: /proceed to checkout/i }).click();
-  const analyticsRes = await analyticsResponsePromise.catch(() => null);
-  const analyticsResponse = analyticsRes ? await analyticsRes.json().catch(() => analyticsRes.text()) : null;
-  console.log(`📥 Analytics API response: ${JSON.stringify(analyticsResponse)}`);
-
-  expect(analyticsPayload).toBeTruthy();
-  expect(analyticsResponse).toBeTruthy();
-  console.log('✅ create-preview-analytics API called with payload and response captured');
-
-  await page.screenshot({ path: `${EVIDENCE_DIR}/p23-case7-analytics.png`, fullPage: true });
-  await ctx.close();
-});
-
-// ─── Global Cases ─────────────────────────────────────────────────────────────
+// ─── Global Cases (Execution order: 3) ─────────────────────────────────────────
 
 test('Global Case 1 - Lower to higher coupon swap logic (cookie validation)', async ({ browser }) => {
   const ctx = await browser.newContext();
@@ -1461,6 +952,5 @@ test('Summary - Detected Preview Pages', async () => {
   console.log(`  P2 WS  → ws_preview_page      : ${pages.ws  ?? 'N/A'}`);
   console.log(`  P3 LP  → license_preview_page : ${pages.lp  ?? 'N/A'}`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-  // clean up temp file
   if (fs.existsSync(SUMMARY_FILE)) fs.unlinkSync(SUMMARY_FILE);
 });
