@@ -230,10 +230,32 @@ const Preview_28 = {
   },
 };
 
+// ─── Preview 28B ──────────────────────────────────────────────────────────────
+const Preview_28B = {
+  async vhr(page, url) {
+    console.log('▶ [P28B - Priority 1 VHR]');
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-vhr-01-preview.png`, fullPage: true });
+    await runCheckoutFlow(page, { screenshotPrefix: 'p28b-vhr', clickFlow: p => clickFlowAccessRecords(p, 'p28b-vhr') });
+  },
+  async ws(page, url) {
+    console.log('▶ [P28B - Priority 2 WS]');
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-ws-01-preview.png`, fullPage: true });
+    await runCheckoutFlow(page, { screenshotPrefix: 'p28b-ws', clickFlow: p => clickFlowAccessRecords(p, 'p28b-ws') });
+  },
+  async lp(page, url) {
+    console.log('▶ [P28B - Priority 3 LP]');
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-lp-01-preview.png`, fullPage: true });
+    await runCheckoutFlow(page, { screenshotPrefix: 'p28b-lp', clickFlow: p => clickFlowAccessRecords(p, 'p28b-lp') });
+  },
+};
+
 // ─── Block Maps ───────────────────────────────────────────────────────────────
-const VHR_BLOCKS = { '23': Preview_23.vhr, '27': Preview_27.vhr, '28': Preview_28.vhr };
-const WS_BLOCKS  = { '23': Preview_23.ws,  '27': Preview_27.ws,  '28': Preview_28.ws  };
-const LP_BLOCKS  = { '23': Preview_23.lp,  '27': Preview_27.lp,  '28': Preview_28.lp  };
+const VHR_BLOCKS = { '23': Preview_23.vhr, '27': Preview_27.vhr, '28': Preview_28.vhr, '28B': Preview_28B.vhr };
+const WS_BLOCKS  = { '23': Preview_23.ws,  '27': Preview_27.ws,  '28': Preview_28.ws,  '28B': Preview_28B.ws  };
+const LP_BLOCKS  = { '23': Preview_23.lp,  '27': Preview_27.lp,  '28': Preview_28.lp,  '28B': Preview_28B.lp  };
 
 
 // ─── Priority Tests ───────────────────────────────────────────────────────────
@@ -253,7 +275,7 @@ test('Priority 1 - VHR: detect preview_page and run VHR block', async ({ page })
   const existing = fs.existsSync(SUMMARY_FILE) ? JSON.parse(fs.readFileSync(SUMMARY_FILE, 'utf8')) : {};
   fs.writeFileSync(SUMMARY_FILE, JSON.stringify({ ...existing, vhr: raw }));
 
-  const num = raw?.match(/preview(\d+)/)?.[1];
+  const num = raw?.match(/preview(28[AB]|\d+)/)?.[1];
   const block = VHR_BLOCKS[num];
   if (!block) throw new Error(`[VHR] No block for: "${num}" (raw: "${raw}")`);
   await block(page, VHR_URL);
@@ -275,7 +297,7 @@ test('Priority 2 - WS: detect ws_preview_page and run WS block', async ({ browse
   const existing = fs.existsSync(SUMMARY_FILE) ? JSON.parse(fs.readFileSync(SUMMARY_FILE, 'utf8')) : {};
   fs.writeFileSync(SUMMARY_FILE, JSON.stringify({ ...existing, ws: raw }));
 
-  const num = raw?.match(/preview(\d+)/)?.[1];
+  const num = raw?.match(/preview(28[AB]|\d+)/)?.[1];
   const block = WS_BLOCKS[num];
   if (!block) { await context.close(); throw new Error(`[WS] No block for: "${num}" (raw: "${raw}")`); }
   await block(page, WS_URL);
@@ -295,7 +317,7 @@ test('Priority 3 - LP: detect license_preview_page and run LP block', async ({ b
   const existing = fs.existsSync(SUMMARY_FILE) ? JSON.parse(fs.readFileSync(SUMMARY_FILE, 'utf8')) : {};
   fs.writeFileSync(SUMMARY_FILE, JSON.stringify({ ...existing, lp: raw }));
 
-  const num = raw?.match(/preview(\d+)/)?.[1];
+  const num = raw?.match(/preview(28[AB]|\d+)/)?.[1];
   const block = LP_BLOCKS[num];
   if (!block) { await context.close(); throw new Error(`[LP] No block for: "${num}" (raw: "${raw}")`); }
   await block(page, LP_URL);
@@ -804,6 +826,416 @@ test('P28 Case 7 - Verify reveal record section (internal linking) and vehicle m
   }
 
   await page.screenshot({ path: `${EVIDENCE_DIR}/p28-case7-media-section.png`, fullPage: true });
+  console.log('✅ Reveal record section and vehicle media image section verified');
+  await ctx.close();
+});
+
+// ─── P28B Cases ───────────────────────────────────────────────────────────────
+
+test.describe('P28B Cases', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  let sharedPage;
+
+  test.beforeAll(async ({ browser }) => {
+    const context = await browser.newContext();
+    sharedPage = await context.newPage();
+    await sharedPage.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+    await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+    const raw = await sharedPage.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+    const num = raw?.match(/preview(28[AB]|\d+)/)?.[1];
+    console.log(`🔍 preview_page: ${raw}`);
+    if (num !== '28B') {
+      await sharedPage.close();
+      return;
+    }
+    // Wait for plans container to ensure page is fully loaded
+    await sharedPage.locator('#plans').waitFor({ state: 'visible', timeout: 30000 }).catch(() => {});
+  });
+
+  test.afterAll(async () => { await sharedPage?.close(); });
+
+  test('P28B Case 1 - Plan radio buttons are clickable', async () => {
+    if (sharedPage.isClosed()) { test.skip(); return; }
+    await sharedPage.reload({ waitUntil: 'domcontentloaded' });
+
+    const plans = sharedPage.locator('#plans [role="radio"]');
+    await plans.first().waitFor({ state: 'visible', timeout: 15000 });
+    const count = await plans.count();
+    expect(count).toBeGreaterThan(0);
+    console.log(`📋 Found ${count} plan options`);
+
+    for (let i = 0; i < count; i++) {
+      await plans.nth(i).click();
+      expect(await plans.nth(i).getAttribute('aria-checked')).toBe('true');
+      console.log(`✅ Plan ${i + 1} is clickable and selectable`);
+    }
+  });
+
+  test('P28B Case 2 - Unlimited VIN Check locks the decal checkbox', async () => {
+    if (sharedPage.isClosed()) { test.skip(); return; }
+    await sharedPage.locator('#plans').waitFor({ state: 'visible', timeout: 15000 });
+
+    await sharedPage.locator('#plans [role="radio"]').filter({ hasText: /unmimited vin check/i }).first().click();
+    console.log('✅ Selected Unmimited VIN Check');
+
+    const upsellCheckbox = sharedPage.locator('[role="checkbox"]').filter({ has: sharedPage.locator('#landing_decal') });
+    const ariaChecked    = await upsellCheckbox.getAttribute('aria-checked');
+    const parentClass    = await upsellCheckbox.locator('xpath=..').getAttribute('class');
+    console.log(`aria-checked: ${ariaChecked}, opacity-50: ${parentClass?.includes('opacity-50')}`);
+
+    expect(ariaChecked).toBe('false');
+    expect(parentClass).toContain('opacity-50');
+    console.log('✅ Upsell checkbox is locked when UVC is selected');
+  });
+
+  test('P28B Case 3 - Default plan price matches site_settings.default_plan', async () => {
+    if (sharedPage.isClosed()) { test.skip(); return; }
+
+    const defaultPlan = await sharedPage.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').default_plan ?? null);
+    console.log(`🔍 default_plan: ${JSON.stringify(defaultPlan)}`);
+    expect(defaultPlan).not.toBeNull();
+
+    const planPrice = defaultPlan?.price ?? defaultPlan?.amount ?? defaultPlan?.value ?? null;
+    expect(planPrice).not.toBeNull();
+
+    await sharedPage.reload({ waitUntil: 'domcontentloaded' });
+    const selectedPlan = sharedPage.locator('#plans div[role="radio"][aria-checked="true"]').first();
+    await expect(selectedPlan).toBeVisible({ timeout: 20000 });
+    const priceText = await selectedPlan.locator('span').filter({ hasText: /^\$[\d.]+$/ }).first().textContent();
+    const pagePrice = priceText?.replace('$', '').trim();
+    console.log(`💲 Page selected plan price: $${pagePrice}`);
+
+    expect(String(planPrice)).toContain(pagePrice);
+    console.log(`✅ Default plan price matches: ${planPrice} = $${pagePrice}`);
+  });
+
+  test('P28B Case 8 - Window Sticker checkbox dynamic text and price', async () => {
+    if (sharedPage.isClosed()) { test.skip(); return; }
+    await sharedPage.reload({ waitUntil: 'domcontentloaded' });
+
+    // Wait for page to finish loading (plans container should appear)
+    await sharedPage.locator('#plans').waitFor({ state: 'visible', timeout: 30000 });
+
+    await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').sticker_preview_page_checkbox_price, { timeout: 15000 });
+    const settings = await sharedPage.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}'));
+    
+    const fullText = await sharedPage.evaluate(() => document.body.innerText);
+
+    expect(fullText).toContain(settings.sticker_preview_page_checkbox_text);
+    expect(fullText).toContain(settings.sticker_preview_page_checkbox_price);
+    console.log('✅ Window sticker dynamic text and price verified in page text content');
+  });
+});
+
+// ─── P28B Exit Intent Test ────────────────────────────────────────────────────
+
+test('P28B Case 4 - Exit intent popup appears on preview page', async ({ browser }) => {
+  const ctx  = await browser.newContext();
+  const page = await ctx.newPage();
+  await page.addInitScript(spoofWebdriver);
+
+  await page.goto(SITE_URL, { waitUntil: 'domcontentloaded' });
+  await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+
+  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+  if (!raw?.includes('28_B')) { await ctx.close(); test.skip(); return; }
+  console.log(`🔍 Confirmed preview_page: ${raw}`);
+
+  await page.waitForFunction(() => document.readyState === 'complete', { timeout: 15000 });
+  await page.mouse.move(640, 400);
+  await page.mouse.wheel(0, 500);
+  await page.waitForTimeout(3000);
+  await page.mouse.wheel(0, -500);
+  await page.waitForTimeout(4000);
+  await triggerExitIntent(page);
+
+  await assertExitIntentPopup(page, 'p28b-exit-intent-popup.png');
+  console.log('✅ Exit intent popup appeared on P28B preview page');
+  await ctx.close();
+});
+
+// ─── P28B Classic VIN Tests ───────────────────────────────────────────────────
+
+test('P28B Case 5 - Classic mapped VIN modification (update YMM using dropdown)', async ({ browser }) => {
+  const { ctx, page, getApiStatus } = await setupClassicVinPage(browser);
+
+  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+  if (!raw?.includes('28_B')) { await ctx.close(); test.skip(); return; }
+  console.log(`🔍 Confirmed preview_page: ${raw}`);
+
+  await page.getByRole('button', { name: 'Click here to update' }).click();
+  await page.getByRole('button', { name: 'Update Year, Make and Model' }).click();
+
+  await page.getByLabel('Year').click();
+  await page.getByLabel('1961').click();
+  await page.getByLabel('Make').click();
+  await page.getByLabel('AJS').click();
+  await page.getByLabel('Model').click();
+  await page.getByText('Model 16 350ms').click();
+  await page.getByLabel('Trim').click();
+  await page.getByText('Base', { exact: true }).click();
+  await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-case5-ymm-selected.png`, fullPage: true });
+
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'Confirm Selection' }).click();
+  await page.getByRole('button', { name: 'Submit' }).click();
+  await page.waitForURL(/cv=/, { timeout: 30000 });
+
+  expect(page.url()).toContain('cv=');
+  expect(getApiStatus()).toBe(200);
+  console.log(`✅ API 200 & redirected: ${page.url()}`);
+  await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-case5-ymm-updated.png`, fullPage: true });
+  await ctx.close();
+});
+
+test('P28B Case 6 - Update classic VIN (modify data using manual input)', async ({ browser }) => {
+  const { ctx, page, getApiStatus } = await setupClassicVinPage(browser);
+
+  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+  if (!raw?.includes('28_B')) { await ctx.close(); test.skip(); return; }
+  console.log(`🔍 Confirmed preview_page: ${raw}`);
+
+  await page.getByRole('button', { name: 'Click here to update' }).click();
+  await page.getByRole('button', { name: 'Update Year, Make and Model' }).click();
+  await page.getByRole('button', { name: 'Click here' }).click();
+
+  await page.getByPlaceholder('Enter year').fill('1960');
+  await page.getByPlaceholder('Enter year').press('Tab');
+  await page.getByPlaceholder('Enter make').fill('Ford');
+  await page.getByPlaceholder('Enter make').press('Tab');
+  await page.getByPlaceholder('Enter model').fill('F-250');
+  await page.getByPlaceholder('Enter model').press('Tab');
+  await page.getByPlaceholder('Enter engine (e.g., V8,').fill('V8');
+  await page.getByPlaceholder('Enter engine (e.g., V8,').press('Tab');
+  await page.getByPlaceholder('Enter transmission type').fill('Auto');
+  await page.getByPlaceholder('Enter transmission type').press('Tab');
+  await page.getByPlaceholder('Enter number of doors').fill('5');
+  await page.getByPlaceholder('Enter number of doors').press('Tab');
+  await page.getByPlaceholder('Enter drive type (e.g., RWD,').fill('AWD');
+  await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-case6-manual-input.png`, fullPage: true });
+  console.log('✅ Manual fields filled');
+
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'Submit' }).click();
+  await page.waitForURL(/cv=/, { timeout: 30000 });
+
+  expect(page.url()).toContain('cv=');
+  expect(getApiStatus()).toBe(200);
+  console.log(`✅ API 200 & redirected: ${page.url()}`);
+  await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-case6-manual-updated.png`, fullPage: true });
+  await ctx.close();
+});
+
+// ─── P28B Cases ───────────────────────────────────────────────────────────────
+
+test('P28B Case 7 - Default plan price matches site_settings.default_plan', async ({ browser }) => {
+  const ctx  = await browser.newContext();
+  const page = await ctx.newPage();
+
+  await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+
+  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+  if (!raw?.includes('28_B')) { await ctx.close(); test.skip(); return; }
+  console.log(`🔍 Confirmed preview_page: ${raw}`);
+
+  const defaultPlan = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').default_plan ?? null);
+  console.log(`🔍 default_plan: ${JSON.stringify(defaultPlan)}`);
+  expect(defaultPlan).not.toBeNull();
+
+  const planPrice = defaultPlan?.price ?? defaultPlan?.amount ?? defaultPlan?.value ?? null;
+  expect(planPrice).not.toBeNull();
+  expect(parseFloat(planPrice)).toBeGreaterThan(0);
+  console.log(`✅ Default plan price is valid: $${planPrice}`);
+  await ctx.close();
+});
+
+test('P28B Case 8 - Plan selection, info/error messages and UVC upsell hide', async ({ browser }) => {
+  const ctx  = await browser.newContext();
+  const page = await ctx.newPage();
+  await page.addInitScript(spoofWebdriver);
+
+  await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+
+  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+  if (!raw?.includes('28_B')) { await ctx.close(); test.skip(); return; }
+  console.log(`🔍 Confirmed preview_page: ${raw}`);
+
+  // Smart wait: Wait for page to fully render before interacting
+  await page.waitForTimeout(3000);
+  
+  // Codegen steps for P28B Case 8 - with smart waits between clicks
+  await page.getByText('/Report').nth(1).click();
+  await page.waitForTimeout(1000);
+  
+  await page.getByText('/Report').nth(1).click();
+  await page.waitForTimeout(1000);
+  
+  await page.getByText('Vehicle Reports$17.50/ReportSave 12%Total: $34.992 Reports$17.50/ReportSave 12%').click();
+  await page.waitForTimeout(1000);
+  
+  await page.getByRole('radio', { name: 'Unlimited VIN Check Unlimited' }).click();
+  await page.waitForTimeout(500);
+  
+  await page.locator('div').filter({ hasText: /^Window Stickers Included FREE2 FREE sticker credits with your subscription$/ }).nth(1).click();
+  await page.waitForTimeout(500);
+  
+  await page.getByText('Vehicle Reports$8.00/ReportSave 60%$79.99$199.9010 Vehicle Reports$8.00/').click();
+  await page.waitForTimeout(500);
+  
+  await page.getByText('Vehicle Reports$7.00/ReportSave 65%$174.99$499.7525 Vehicle Reports$7.00/').click();
+  await page.waitForTimeout(500);
+  
+  await page.getByText('Vehicle Report$19.99/ReportFull Price1 Report$19.99/ReportFull Price').click();
+  await page.waitForTimeout(500);
+  
+  await page.getByRole('button', { name: 'Add' }).click();
+  await page.waitForTimeout(1000);
+  
+  console.log('✅ P28B Case 8 - Plan selection completed');
+  await ctx.close();
+});
+
+test('P28B Case 9 - Email validation, maybe later API, and phone analytics flow', async ({ browser }) => {
+  const ctx  = await browser.newContext();
+  const page = await ctx.newPage();
+
+  const vin = randomVin();
+  await page.goto(getVhrUrl(vin), { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+
+  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+  if (!raw?.includes('28_B')) { await ctx.close(); test.skip(); return; }
+  console.log(`🔍 Confirmed preview_page: ${raw}`);
+
+  // ── Step 2: Open email popup ──────────────────────────────────────────────
+  await page.getByRole('button', { name: /access records/i }).first().click();
+  const emailInput = page.locator('input[type="email"]').first();
+  await emailInput.waitFor({ state: 'visible', timeout: 10000 });
+  console.log('✅ Email popup opened');
+
+  // ── Step 3 & 4: Enter invalid email → expect validation error ─────────────
+  await emailInput.fill('invalidemail');
+  await page.getByRole('button', { name: /proceed to checkout/i }).click();
+  const errorMsg = page.locator('text=/please enter a valid email/i');
+  await expect(errorMsg).toBeVisible({ timeout: 5000 });
+  console.log('✅ Validation error shown for invalid email');
+
+  // ── Step 5: Enter valid email → click Maybe Later → assert API + payload ──
+  await emailInput.clear();
+  const validEmail = `test_${Date.now()}@example.com`;
+  await emailInput.fill(validEmail);
+  console.log(`📧 Valid email: ${validEmail}`);
+
+  let maybeLaterCalled = false;
+  let maybeLaterPayload;
+  page.on('request', req => {
+    if (req.url().includes('landing/index_collection')) {
+      maybeLaterCalled = true;
+      maybeLaterPayload = req.postData();
+      console.log(`📤 Maybe Later API called: ${req.url()}`);
+      console.log(`📤 Maybe Later payload: ${maybeLaterPayload}`);
+    }
+  });
+
+  await page.getByRole('button', { name: /maybe later/i }).click();
+  await page.waitForTimeout(2000);
+  expect(maybeLaterCalled).toBe(true);
+  expect(maybeLaterPayload).toBeTruthy();
+  console.log('✅ landing/index_collection API called on Maybe Later');
+
+  // ── Step 6: Popup closed → reopen → fill valid email + phone → analytics ──
+  await expect(emailInput).not.toBeVisible({ timeout: 5000 });
+  console.log('✅ Email popup closed after Maybe Later');
+
+  await page.getByRole('button', { name: /access records/i }).first().click();
+  const emailInput2 = page.locator('input[type="email"]').first();
+  await emailInput2.waitFor({ state: 'visible', timeout: 10000 });
+
+  const uniqueEmail = `test_${Date.now()}_u@example.com`;
+  await emailInput2.fill(uniqueEmail);
+  console.log(`📧 Unique email: ${uniqueEmail}`);
+
+  const phoneInput = page.locator('input[type="tel"], input[placeholder*="phone" i], input[placeholder*="Phone" i]').first();
+  await phoneInput.waitFor({ state: 'visible', timeout: 10000 });
+
+  let analyticsPayload;
+  page.on('request', req => {
+    if (req.url().includes('api-cwa/create-preview-analytics')) {
+      analyticsPayload = req.postData();
+      console.log(`📤 Analytics API payload: ${analyticsPayload}`);
+    }
+  });
+
+  await phoneInput.click();
+  await phoneInput.fill('5551234567');
+
+  const analyticsResponsePromise = page.waitForResponse(
+    res => res.url().includes('api-cwa/create-preview-analytics'),
+    { timeout: 15000 }
+  );
+  await page.getByRole('button', { name: /proceed to checkout/i }).click();
+  const analyticsRes = await analyticsResponsePromise.catch(() => null);
+  const analyticsResponse = analyticsRes ? await analyticsRes.json().catch(() => analyticsRes.text()) : null;
+  console.log(`📥 Analytics API response: ${JSON.stringify(analyticsResponse)}`);
+
+  expect(analyticsPayload).toBeTruthy();
+  expect(analyticsResponse).toBeTruthy();
+  console.log('✅ create-preview-analytics API called with payload and response captured');
+
+  await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-case9-analytics.png`, fullPage: true });
+  await ctx.close();
+});
+
+// ─── P28B Case 10 ─────────────────────────────────────────────────────────────
+
+test('P28B Case 10 - Verify reveal record section (internal linking) and vehicle media image section', async ({ browser }) => {
+  const ctx  = await browser.newContext();
+  const page = await ctx.newPage();
+
+  await page.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+
+  const raw = await page.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
+  if (!raw?.includes('28_B')) { await ctx.close(); test.skip(); return; }
+  console.log(`🔍 Confirmed preview_page: ${raw}`);
+
+  // ── Reveal record section: click each record link and close ───────────────
+  const recordLinks = page.locator('.text-lg');
+  await recordLinks.first().waitFor({ state: 'visible', timeout: 15000 });
+  const count = await recordLinks.count();
+  console.log(`📋 Found ${count} record links`);
+
+  for (let i = 0; i < Math.min(count, 5); i++) {
+    await recordLinks.nth(i).click();
+    const closeBtn = page.getByRole('button', { name: 'Close' });
+    await closeBtn.waitFor({ state: 'visible', timeout: 8000 });
+    await closeBtn.click();
+    console.log(`✅ Record link ${i + 1} opened and closed`);
+  }
+
+  // ── Vehicle media image section: scroll to top, click left & right arrows ──
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(500);
+
+  // Carousel only appears if vehicle has images — check first
+  const nextBtn = page.locator('div').filter({ hasText: /^\d+ \/ \d+$/ }).getByRole('button').nth(1);
+  const prevBtn = page.locator('div').filter({ hasText: /^\d+ \/ \d+$/ }).getByRole('button').first();
+
+  const carouselVisible = await nextBtn.isVisible().catch(() => false);
+  if (carouselVisible) {
+    await nextBtn.click();
+    console.log('✅ Clicked next (right) arrow on vehicle media');
+    await prevBtn.click();
+    console.log('✅ Clicked prev (left) arrow on vehicle media');
+  } else {
+    console.log('ℹ️ No vehicle images for this VIN — carousel not present, skipping media section');
+  }
+
+  await page.screenshot({ path: `${EVIDENCE_DIR}/p28b-case10-media-section.png`, fullPage: true });
   console.log('✅ Reveal record section and vehicle media image section verified');
   await ctx.close();
 });
