@@ -365,12 +365,12 @@ test('Priority 3 - LP: detect license_preview_page and run LP block', async ({ b
 // ─── P23 Cases (Execution order: 2 if detected type is 23) ─────────────────────
 
 test.describe('P23 Cases', () => {
-  test.describe.configure({ mode: 'serial' });
-
+  // Use a context-based isolation
+  let context;
   let sharedPage;
 
-  test.beforeAll(async ({ browser }) => {
-    // If not detected yet, do it now (handles direct block runs)
+  test.beforeEach(async ({ browser }) => {
+    // If not detected yet, do it once per suite or check per context
     if (!DETECTED_PAGE_TYPE) {
       const raw = await getDetectedPage(browser);
       DETECTED_PAGE = raw;
@@ -378,21 +378,19 @@ test.describe('P23 Cases', () => {
       console.log(`🔍 [P23 Auto-Detect] preview_page: ${DETECTED_PAGE}, Type: ${DETECTED_PAGE_TYPE}`);
     }
 
-    // Skip entire P23 block if detected page type is not 23
-    if (DETECTED_PAGE_TYPE !== '23') {
-      console.log(`⏭️ Skipping P23 Cases - detected page type is ${DETECTED_PAGE_TYPE}, not 23`);
-      return;
+    if (DETECTED_PAGE_TYPE === '23') {
+      context = await browser.newContext();
+      sharedPage = await context.newPage();
+      await sharedPage.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+      await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+      console.log(`🔍 P23 page isolated and initialized`);
     }
-
-    const context = await browser.newContext();
-    sharedPage = await context.newPage();
-    // Re-add necessary initial navigation
-    await sharedPage.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
-    await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-    console.log(`🔍 P23 block initialized and navigated`);
   });
 
-  test.afterAll(async () => { if (sharedPage && !sharedPage.isClosed()) await sharedPage.close(); });
+  test.afterEach(async () => {
+    if (sharedPage && !sharedPage.isClosed()) await sharedPage.close();
+    if (context) await context.close();
+  });
 
   test('P23 Case 1 - Plan radio buttons are clickable', async () => {
     if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
