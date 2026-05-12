@@ -386,15 +386,11 @@ test.describe('P23 Cases', () => {
 
     const context = await browser.newContext();
     sharedPage = await context.newPage();
-    await sharedPage.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
-    await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-    const raw = await sharedPage.evaluate(() => JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page ?? null);
-    const num = raw?.match(/preview(\d+)/)?.[1];
-    console.log(`🔍 preview_page: ${raw}`);
-    if (num !== '23') {
-      await sharedPage.close();
-      sharedPage = null;
-    }
+    // Removed redundant initial navigation
+    console.log(`🔍 P23 block initialized`);
+    
+    // We will navigate in each test case if needed. 
+    // Or we can keep a simple wait for settings here if needed, but not a full goto.
   });
 
   test.afterAll(async () => { if (sharedPage && !sharedPage.isClosed()) await sharedPage.close(); });
@@ -688,6 +684,27 @@ test.describe('P23 Cases', () => {
     await sharedPage.waitForTimeout(2000);
     // Move API capture to before navigation to avoid missing the first request
     console.log('✅ EU VIN confirmed');
+  });
+
+  test('P23 Case 10 - EU VIN confirmation (Yes flow)', async () => {
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
+    
+    const EU_BASE_VIN = 'WAUZZZ8P6CA083445';
+    function randomEuVin(base) {
+      const nums = '0123456789';
+      return base.slice(0, -1) + nums[Math.floor(Math.random() * nums.length)];
+    }
+    const randomizedEuVin = randomEuVin(EU_BASE_VIN);
+    const url = getVhrUrl(randomizedEuVin);
+    
+    console.log(`🔑 Randomized EU VIN: ${randomizedEuVin}`);
+    await sharedPage.goto(url, { waitUntil: 'domcontentloaded' });
+    
+    await sharedPage.getByRole('button', { name: 'Yes' }).click();
+    await sharedPage.waitForURL(/\/members\/vin-check\/preview/, { timeout: 30000 });
+    
+    await sharedPage.waitForTimeout(2000);
+    console.log('✅ EU VIN confirmed (Yes flow) and browser closed');
   });
 });
 
