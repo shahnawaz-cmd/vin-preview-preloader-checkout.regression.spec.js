@@ -391,29 +391,25 @@ test('Priority 3 - LP: detect license_preview_page and run LP block', async ({ b
 // ─── P23 Cases (Execution order: 2 if detected type is 23) ─────────────────────
 
 test.describe('P23 Cases', () => {
-  // Use a context-based isolation
   let context;
   let sharedPage;
 
-  test.beforeEach(async ({ browser }) => {
-    // If not detected yet, do it once per suite or check per context
+  test.beforeAll(async ({ browser }) => {
     if (!DETECTED_PAGE_TYPE) {
       const raw = await getDetectedPage(browser);
       DETECTED_PAGE = raw;
       DETECTED_PAGE_TYPE = getPageType(raw);
-      console.log(`🔍 [P23 Auto-Detect] preview_page: ${DETECTED_PAGE}, Type: ${DETECTED_PAGE_TYPE}`);
     }
-
-    if (DETECTED_PAGE_TYPE === '23') {
-      context = await browser.newContext();
-      sharedPage = await context.newPage();
-      await sharedPage.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
-      await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-      console.log(`🔍 P23 page isolated and initialized`);
+    if (DETECTED_PAGE_TYPE !== '23') {
+      test.skip();
     }
+    context = await browser.newContext();
+    sharedPage = await context.newPage();
+    await sharedPage.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+    await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
   });
 
-  test.afterEach(async () => {
+  test.afterAll(async () => {
     if (sharedPage && !sharedPage.isClosed()) await sharedPage.close();
     if (context) await context.close();
   });
@@ -1161,25 +1157,22 @@ test.describe('P28 Cases', () => {
   let context;
   let sharedPage;
 
-  test.beforeEach(async ({ browser }) => {
-    // If not detected yet, do it once per suite or check per context
+  test.beforeAll(async ({ browser }) => {
     if (!DETECTED_PAGE_TYPE) {
       const raw = await getDetectedPage(browser);
       DETECTED_PAGE = raw;
       DETECTED_PAGE_TYPE = getPageType(raw);
-      console.log(`🔍 [P28 Auto-Detect] preview_page: ${DETECTED_PAGE}, Type: ${DETECTED_PAGE_TYPE}`);
     }
-
-    if (DETECTED_PAGE_TYPE === '28') {
-      context = await browser.newContext();
-      sharedPage = await context.newPage();
-      await sharedPage.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
-      await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
-      console.log(`🔍 P28 page isolated and initialized`);
+    if (DETECTED_PAGE_TYPE !== '28') {
+      test.skip();
     }
+    context = await browser.newContext();
+    sharedPage = await context.newPage();
+    await sharedPage.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+    await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
   });
 
-  test.afterEach(async () => {
+  test.afterAll(async () => {
     if (sharedPage && !sharedPage.isClosed()) await sharedPage.close();
     if (context) await context.close();
   });
@@ -1973,6 +1966,74 @@ test.describe('P28B Cases', () => {
     console.log('✅ Window sticker dynamic text and price verified');
   });
 
+  test('P28B Case 9 - EU VIN confirmation', async () => {
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
+    const EU_BASE_VIN = 'WAUZZZ8P6CA083445';
+    function randomEuVin(base) {
+      const nums = '0123456789';
+      return base.slice(0, -1) + nums[Math.floor(Math.random() * nums.length)];
+    }
+    const randomizedEuVin = randomEuVin(EU_BASE_VIN);
+    const url = getVhrUrl(randomizedEuVin);
+    console.log(`🔑 Randomized EU VIN: ${randomizedEuVin}`);
+    await sharedPage.goto(url, { waitUntil: 'domcontentloaded' });
+    
+    await sharedPage.getByRole('button', { name: 'No' }).click();
+    await sharedPage.getByRole('combobox').filter({ hasText: 'Select Year' }).click();
+    await sharedPage.getByRole('textbox', { name: 'Search...' }).fill('2015');
+    await sharedPage.getByRole('button', { name: '2015' }).click();
+    await sharedPage.getByRole('combobox').filter({ hasText: 'Select Make' }).click();
+    await sharedPage.getByRole('button', { name: 'Alfa Romeo' }).click();
+    await sharedPage.getByRole('combobox').filter({ hasText: 'Select Model' }).click();
+    await sharedPage.getByRole('button', { name: 'Giulietta II' }).click();
+    await sharedPage.getByRole('combobox').filter({ hasText: 'Select Trim' }).click();
+    await sharedPage.getByRole('button', { name: '1.4 GLP Turbo 120HP' }).click();
+    await sharedPage.getByRole('button', { name: 'Update Vehicle Details' }).click();
+    await sharedPage.waitForTimeout(2000);
+    console.log('✅ EU VIN confirmed');
+  });
+
+  test('P28B Case 10 - EU VIN confirmation (Yes flow)', async () => {
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
+    const EU_BASE_VIN = 'WAUZZZ8P6CA083445';
+    function randomEuVin(base) {
+      const nums = '0123456789';
+      return base.slice(0, -1) + nums[Math.floor(Math.random() * nums.length)];
+    }
+    const randomizedEuVin = randomEuVin(EU_BASE_VIN);
+    const url = getVhrUrl(randomizedEuVin);
+    console.log(`🔑 Randomized EU VIN: ${randomizedEuVin}`);
+    await sharedPage.goto(url, { waitUntil: 'domcontentloaded' });
+    
+    await sharedPage.getByRole('button', { name: 'Yes' }).click();
+    await sharedPage.waitForURL(/\/members\/vin-check\/preview/, { timeout: 30000 });
+    await sharedPage.waitForTimeout(2000);
+    console.log('✅ EU VIN confirmed (Yes flow)');
+  });
+
+  test('P28B Case 11 - Verify sales History Record checkes', async () => {
+    if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
+    const client = new MongoClient(MONGO_URI);
+    let vin;
+    try {
+        await client.connect();
+        const doc = await client.db(DB_NAME).collection(COLL_NAME).aggregate([{ $sample: { size: 1 } }]).toArray();
+        vin = doc[0]?.vin;
+        console.log(`🔑 Retrieved VIN from MongoDB: ${vin}`);
+    } catch (e) {
+        console.error(`⚠️ MongoDB connection error: ${e.message}`);
+        test.skip();
+    } finally { await client.close(); }
+    if (!vin) throw new Error('Could not retrieve VIN from MongoDB');
+    await sharedPage.goto(getVhrUrl(vin), { waitUntil: 'domcontentloaded' });
+    await sharedPage.waitForSelector('body', { timeout: 60000 });
+    await sharedPage.waitForTimeout(15000); 
+    const pageContent = await sharedPage.textContent('body');
+    const isVisible = pageContent.toLowerCase().includes('previously listed for sale');
+    expect(isVisible).toBe(true);
+    console.log('✅ Sales History Record available text verified');
+  });
+
   test('P28B Case 12 - Verify Auction records', async ({ browser }) => {
     const ctx = await browser.newContext({
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -2056,34 +2117,42 @@ test('Global Case 2 - ref=ads param sets cookie correctly', async ({ browser }) 
   await ctx.close();
 });
 
-/*
 test('Global Case 3 - Exit intent verification', async ({ browser }) => {
-const ctx = await browser.newContext();
-const page = await ctx.newPage();
-await page.addInitScript(spoofWebdriver);
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+  
+  await page.goto(SITE_URL, { waitUntil: 'domcontentloaded' });
+  
+  // Trigger intent using helper from P23
+  await triggerExitIntent(page);
+  
+  // The site is auto-redirecting. Instead of forcing a click, check if the button is visible and handle the race condition.
+  try {
+    const ctaButton = page.locator('button[class*="exit-intent-primary-btn"]', { hasText: /Click here to redeem instantly/i });
+    if (await ctaButton.isVisible({ timeout: 5000 })) {
+      await ctaButton.click();
+      console.log('✅ Clicked CTA button');
+    } else {
+      console.log('ℹ️ Popup already handled by auto-navigation');
+    }
+  } catch (e) {
+    console.log('ℹ️ Popup interaction skipped due to auto-navigation');
+  }
 
-await page.goto(SITE_URL, { waitUntil: 'domcontentloaded' });
-
-// Trigger intent
-await triggerExitIntent(page);
-
-// Interact with popup and verify offer URL
-await page.waitForTimeout(2000); // Give the popup a moment to settle
-await assertExitIntentPopup(page, 'global-homepage-exit-intent.png');
-
-// Verify coupon in URL
-expect(page.url()).toContain('offer=');
-console.log(`✅ Coupon offer found in URL: ${page.url()}`);
-
-// Verify coupon in cookies
-const cookies = await ctx.cookies();
-const couponCookie = cookies.find(c => c.name === 'coupon');
-expect(couponCookie).toBeDefined();
-console.log(`✅ Coupon found in cookies: ${couponCookie.value}`);
-
-await ctx.close();
+  await page.waitForURL(/offer=/, { timeout: 30000 });
+  
+  // Verify coupon in URL
+  expect(page.url()).toContain('offer=');
+  console.log(`✅ Coupon offer found in URL: ${page.url()}`);
+  
+  // Verify coupon in cookies
+  const cookies = await ctx.cookies();
+  const couponCookie = cookies.find(c => c.name === 'coupon');
+  expect(couponCookie).toBeDefined();
+  console.log(`✅ Coupon found in cookies: ${couponCookie.value}`);
+  
+  await ctx.close();
 });
-*/
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
 
