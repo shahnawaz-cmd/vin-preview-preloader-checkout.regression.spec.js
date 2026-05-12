@@ -1,6 +1,12 @@
 const { test, expect } = require('@playwright/test');
 const path = require('path');
 const fs   = require('fs');
+const { MongoClient } = require('mongodb');
+
+// MongoDB Configuration
+const MONGO_URI = 'mongodb://scraping_user:scraping_password@144.126.129.72:27014/?authSource=admin&readPreference=primary&appname=ScrapingMongo&ssl=false';
+const DB_NAME = 'sales_history';
+const COLL_NAME = 'sales13';
 
 const BASE_VIN     = '1FTFW1ET2DFD78356';
 const EVIDENCE_DIR = path.join(__dirname, 'test-results', 'preloader-preview-to-checkout');
@@ -683,25 +689,34 @@ test.describe('P23 Cases', () => {
     console.log('✅ EU VIN confirmed');
   });
 
-  test('P23 Case 10 - EU VIN confirmation (Yes flow)', async () => {
+  test('P23 Case 11 - Verify sales History Record checkes', async () => {
     if (!sharedPage || sharedPage.isClosed()) { test.skip(); return; }
-    
-    const EU_BASE_VIN = 'WAUZZZ8P6CA083445';
-    function randomEuVin(base) {
-      const nums = '0123456789';
-      return base.slice(0, -1) + nums[Math.floor(Math.random() * nums.length)];
+
+    const client = new MongoClient(MONGO_URI);
+    let vin;
+    try {
+        await client.connect();
+        const db = client.db(DB_NAME);
+        const coll = db.collection(COLL_NAME);
+        const doc = await coll.aggregate([{ $sample: { size: 1 } }]).toArray();
+        vin = doc[0].vin;
+        console.log(`🔑 Retrieved VIN from MongoDB: ${vin}`);
+    } catch (e) {
+        console.error(`⚠️ MongoDB connection error: ${e.message}`);
+        test.skip();
+    } finally {
+        await client.close();
     }
-    const randomizedEuVin = randomEuVin(EU_BASE_VIN);
-    const url = getVhrUrl(randomizedEuVin);
-    
-    console.log(`🔑 Randomized EU VIN: ${randomizedEuVin}`);
+
+    if (!vin) throw new Error('Could not retrieve VIN from MongoDB');
+
+    const url = getVhrUrl(vin);
     await sharedPage.goto(url, { waitUntil: 'domcontentloaded' });
     
-    await sharedPage.getByRole('button', { name: 'Yes' }).click();
-    await sharedPage.waitForURL(/\/members\/vin-check\/preview/, { timeout: 30000 });
-    
-    await sharedPage.waitForTimeout(2000);
-    console.log('✅ EU VIN confirmed (Yes flow) and browser closed');
+    // Verify the record availability text
+    const textToVerify = 'Previously listed for sale online. Get the full vehicle report to unlock records and available photos.';
+    await expect(sharedPage.locator(`text=${textToVerify}`)).toBeVisible({ timeout: 30000 });
+    console.log('✅ Sales History Record available text verified');
   });
 });
 
