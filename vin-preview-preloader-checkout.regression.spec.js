@@ -386,11 +386,10 @@ test.describe('P23 Cases', () => {
 
     const context = await browser.newContext();
     sharedPage = await context.newPage();
-    // Removed redundant initial navigation
-    console.log(`🔍 P23 block initialized`);
-    
-    // We will navigate in each test case if needed. 
-    // Or we can keep a simple wait for settings here if needed, but not a full goto.
+    // Re-add necessary initial navigation
+    await sharedPage.goto(getVhrUrl(randomVin()), { waitUntil: 'domcontentloaded' });
+    await sharedPage.waitForFunction(() => !!JSON.parse(localStorage.getItem('site_settings') || '{}').preview_page, { timeout: 15000 }).catch(() => {});
+    console.log(`🔍 P23 block initialized and navigated`);
   });
 
   test.afterAll(async () => { if (sharedPage && !sharedPage.isClosed()) await sharedPage.close(); });
