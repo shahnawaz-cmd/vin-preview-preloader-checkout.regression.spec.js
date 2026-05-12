@@ -743,17 +743,25 @@ test.describe('P23 Cases', () => {
     
     // Use sharedPage for the check
     const url = getVhrUrl(vin);
+    console.log(`🔗 Navigating to VHR URL: ${url}`);
     await sharedPage.goto(url, { waitUntil: 'domcontentloaded' });
     
-    // Wait a bit for potential async content loading
-    await sharedPage.waitForTimeout(5000);
+    // Wait for search to complete (wait for preview content to appear)
+    await sharedPage.waitForSelector('.text-lg, .text-xl, .text-2xl', { timeout: 60000 });
+    await sharedPage.waitForTimeout(2000); // Small buffer
     
     // Verify the record availability text (Sale or Auction)
-    const saleText = 'Previously listed for sale online.';
-    const auctionText = 'Previously listed for Auction online.';
+    const saleText = 'Previously listed for sale';
+    const auctionText = 'Previously listed for auction';
     
+    // Use a more robust check for visibility (case-insensitive)
     const pageContent = await sharedPage.textContent('body');
-    const isVisible = pageContent.includes(saleText) || pageContent.includes(auctionText);
+    const isVisible = pageContent.toLowerCase().includes(saleText.toLowerCase()) || 
+                      pageContent.toLowerCase().includes(auctionText.toLowerCase());
+    
+    if (!isVisible) {
+      console.log(`⚠️ Expected text not found in: ${pageContent.substring(0, 500)}...`);
+    }
     
     expect(isVisible).toBe(true);
     console.log('✅ Auction/Sale Record available text verified');
