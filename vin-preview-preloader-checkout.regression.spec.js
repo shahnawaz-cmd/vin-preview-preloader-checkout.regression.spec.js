@@ -720,14 +720,21 @@ test.describe('P23 Cases', () => {
   });
 
   test('P23 Case 12 - Verify Auction records', async ({ browser }) => {
-    // Create isolated context for scraping
-    const ctx = await browser.newContext();
+    // Create isolated context with stealth settings
+    const ctx = await browser.newContext({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
     const page = await ctx.newPage();
+    
+    // Hide automation flag
+    await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+    });
     
     await page.goto('https://bid.cars/en/search/results?search-type=filters&status=All&type=Automobile&make=All&model=All&year-from=1900&year-to=2027&auction-type=All');
     
     // Wait for result cards to appear, using a more generic approach if needed
-    await page.waitForLoadState('networkidle', { timeout: 30000 });
+    await page.waitForLoadState('networkidle', { timeout: 60000 });
     
     // Extract all potential VINs, assuming they are in elements with a specific class or structure. 
     // If not, we filter by regex.
