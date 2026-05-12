@@ -718,6 +718,46 @@ test.describe('P23 Cases', () => {
     await expect(sharedPage.locator(`text=${textToVerify}`)).toBeVisible({ timeout: 30000 });
     console.log('✅ Sales History Record available text verified');
   });
+
+  test('P23 Case 12 - Verify Auction records', async ({ browser }) => {
+    // Create isolated context for scraping
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    
+    await page.goto('https://bid.cars/en/search/results?search-type=filters&status=All&type=Automobile&make=All&model=All&year-from=1900&year-to=2027&auction-type=All');
+    
+    // Wait for result cards to appear, using a more generic approach if needed
+    await page.waitForLoadState('networkidle', { timeout: 30000 });
+    
+    // Extract all potential VINs, assuming they are in elements with a specific class or structure. 
+    // If not, we filter by regex.
+    const vinPattern = /[A-HJ-NPR-Z0-9]{17}/;
+    const allText = await page.evaluate(() => document.body.innerText);
+    const matches = allText.match(new RegExp(vinPattern.source, 'g')) || [];
+    const vin = matches[0]; // Take the first one found
+    
+    console.log(`🔑 Retrieved VIN from Bid.Cars: ${vin}`);
+    await ctx.close();
+    
+    if (!vin) throw new Error('Could not extract VIN from Bid.Cars');
+    
+    // Use sharedPage for the check
+    const url = getVhrUrl(vin);
+    await sharedPage.goto(url, { waitUntil: 'domcontentloaded' });
+    
+    // Wait a bit for potential async content loading
+    await sharedPage.waitForTimeout(5000);
+    
+    // Verify the record availability text (Sale or Auction)
+    const saleText = 'Previously listed for sale online.';
+    const auctionText = 'Previously listed for Auction online.';
+    
+    const pageContent = await sharedPage.textContent('body');
+    const isVisible = pageContent.includes(saleText) || pageContent.includes(auctionText);
+    
+    expect(isVisible).toBe(true);
+    console.log('✅ Auction/Sale Record available text verified');
+  });
 });
 
 // ─── P27 Cases (Execution order: 2 if detected type is 27) ─────────────────────
