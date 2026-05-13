@@ -2286,6 +2286,39 @@ test('Global Case 11 - EU Confirmation flow from homepage', async ({ page }) => 
   await page.close();
 });
 
+test('Global Case 12 - LP Tab verification', async ({ page }) => {
+  const t0 = Date.now();
+  await page.goto(SITE_URL, { waitUntil: 'domcontentloaded' });
+  
+  await page.getByRole('tab', { name: 'By US License Plate' }).click();
+  
+  const plateInput = page.getByRole('textbox', { name: 'Enter Plate' });
+  await plateInput.fill('HBL1216');
+  await plateInput.press('Tab'); // Trigger blur/change event
+  await page.waitForTimeout(500);
+  
+  const stateDropdown = page.getByLabel('Select State');
+  await stateDropdown.click(); // Ensure it is open
+  await stateDropdown.selectOption('TX');
+  await page.getByRole('button', { name: 'Search VIN' }).click();
+  
+  // Explicitly navigate to preview URL as requested
+  await page.goto('https://developtestsite.com/members/vin-check/license-preview?type=vhr&utm_details=&vin=dGtlbmw2YVJZNENRTE04cUtLY1pPakdka3RHOGhtTGxFZkhOWTdqTE84OD0=&wpPage=homepage&landing=normal', { waitUntil: 'domcontentloaded' });
+  
+  const t1 = Date.now();
+  const elapsed = ((t1 - t0) / 1000).toFixed(2);
+  
+  test.info().annotations.push({ 
+    type: 'LP Tab verification duration', 
+    description: `${elapsed}s` 
+  });
+  
+  console.log(`⏱ LP Tab verification duration: ${elapsed}s`);
+  console.log('✅ Global Case 12 completed');
+  
+  await page.close();
+});
+
 // ─── Summary ──────────────────────────────────────────────────────────────────
 
 test('Summary - Detected Preview Pages', async () => {
