@@ -2121,7 +2121,6 @@ test('Global Case 3 - Exit intent verification', async ({ browser }) => {
   // Trigger intent using helper from P23
   await triggerExitIntent(page);
   
-  // The site is auto-redirecting. Instead of forcing a click, check if the button is visible and handle the race condition.
   // Handle exit intent popup
   const ctaButton = page.getByRole('button', { name: /Click here to redeem instantly/i }).first();
   await ctaButton.waitFor({ state: 'visible', timeout: 10000 });
@@ -2141,6 +2140,94 @@ test('Global Case 3 - Exit intent verification', async ({ browser }) => {
   console.log(`✅ Coupon found in cookies: ${couponCookie.value}`);
   
   await ctx.close();
+});
+
+// ─── Added Cases ─────────────────────────────────────────────────────────────
+
+test('Global Case 4 - VIN input empty submit shows error', async ({ page }) => {
+  await page.goto(SITE_URL, { waitUntil: 'domcontentloaded' });
+  const vinInput = page.getByRole('textbox', { name: 'Enter VIN' });
+  await vinInput.clear();
+  await page.getByRole('button', { name: 'Search VIN' }).click();
+  await expect(page.locator('#errorText_vin')).toHaveText('Please enter a valid VIN.');
+});
+
+test('Global Case 5 - VIN input < 5 chars shows error', async ({ page }) => {
+  await page.goto(SITE_URL, { waitUntil: 'domcontentloaded' });
+  const vinInput = page.getByRole('textbox', { name: 'Enter VIN' });
+  await vinInput.fill('123');
+  await page.getByRole('button', { name: 'Search VIN' }).click();
+  await expect(page.locator('#errorText_vin')).toHaveText('VIN needs to be at least 5 characters long.');
+});
+
+test('Global Case 6 - VIN input max length 17', async ({ page }) => {
+  await page.goto(SITE_URL, { waitUntil: 'domcontentloaded' });
+  const vinInput = page.getByRole('textbox', { name: 'Enter VIN' });
+  await vinInput.fill('1234567890123456789'); // 19 chars
+  const value = await vinInput.inputValue();
+  expect(value.length).toBe(17);
+});
+
+test('Global Case 7 - WS VIN input < 5 chars shows error', async ({ page }) => {
+  await page.goto('https://developtestsite.com/window-sticker', { waitUntil: 'domcontentloaded' });
+  const vinInput = page.getByRole('textbox', { name: 'Enter VIN' });
+  await vinInput.fill('123');
+  await page.getByRole('button', { name: 'Search VIN' }).click();
+  await expect(page.locator('#errorText_vin')).toHaveText('VIN needs to be at least 5 characters long.');
+});
+
+test('Global Case 8 - WS VIN input empty submit shows error', async ({ page }) => {
+  await page.goto('https://developtestsite.com/window-sticker', { waitUntil: 'domcontentloaded' });
+  const vinInput = page.getByRole('textbox', { name: 'Enter VIN' });
+  await vinInput.clear();
+  await page.getByRole('button', { name: 'Search VIN' }).click();
+  await expect(page.locator('#errorText_vin')).toHaveText('Please enter a valid VIN.');
+});
+
+test('Global Case 9 - Homepage VIN search redirects with timing', async ({ page }) => {
+  const t0 = Date.now();
+  await page.goto(SITE_URL, { waitUntil: 'domcontentloaded' });
+  
+  const vin = randomVin();
+  await page.getByRole('textbox', { name: 'Enter VIN' }).fill(vin);
+  await page.getByRole('button', { name: 'Search VIN' }).click();
+  
+  await page.waitForURL(/preview/, { timeout: 30000 });
+  const t1 = Date.now();
+  const elapsed = ((t1 - t0) / 1000).toFixed(2);
+  
+  // Add as annotation to appear in report
+  test.info().annotations.push({ 
+    type: 'Decode time with modern VIN (17 character)', 
+    description: `${elapsed}s` 
+  });
+  
+  console.log(`⏱ Decode time with modern VIN (17 character): ${elapsed}s`);
+  
+  await page.close();
+});
+
+test('Global Case 10 - WS search redirects with timing', async ({ page }) => {
+  const t0 = Date.now();
+  await page.goto('https://developtestsite.com/window-sticker', { waitUntil: 'domcontentloaded' });
+  
+  const vin = randomVin();
+  await page.getByRole('textbox', { name: 'Enter VIN' }).fill(vin);
+  await page.getByRole('button', { name: 'Search VIN' }).click();
+  
+  await page.waitForURL(/ws-preview/, { timeout: 30000 });
+  const t1 = Date.now();
+  const elapsed = ((t1 - t0) / 1000).toFixed(2);
+  
+  // Add as annotation to appear in report
+  test.info().annotations.push({ 
+    type: 'Decode time with window sticker (17 character)', 
+    description: `${elapsed}s` 
+  });
+  
+  console.log(`⏱ Decode time with window sticker (17 character): ${elapsed}s`);
+  
+  await page.close();
 });
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
