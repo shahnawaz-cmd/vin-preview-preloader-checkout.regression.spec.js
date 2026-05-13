@@ -3,8 +3,13 @@ const path = require('path');
 const fs   = require('fs');
 const { MongoClient } = require('mongodb');
 
+// Playwright Extra with Stealth Plugin
+const { chromium } = require('playwright-extra');
+const stealth = require('puppeteer-extra-plugin-stealth')();
+chromium.use(stealth);
+
 // MongoDB Configuration
-const MONGO_URI = 'mongodb://scraping_user:scraping_password@144.126.129.72:27014/?authSource=admin&readPreference=primary&appname=ScrapingMongo&ssl=false';
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://scraping_user:scraping_password@144.126.129.72:27014/?authSource=admin&readPreference=primary&appname=ScrapingMongo&ssl=false';
 const DB_NAME = 'sales_history';
 const COLL_NAME = 'sales13';
 
@@ -115,6 +120,54 @@ async function setupClassicVinPage(browser) {
   page.on('response', async res => { if (res.url().includes('api-cwa/update-classic-decode')) { apiStatus = res.status(); console.log(`📥 API Status: ${apiStatus}`); } });
 
   return { ctx, page, url, getApiStatus: () => apiStatus };
+}
+
+// ─── DRY: get VIN from Bid.Cars (robust with stealth) ────────────────────────
+async function getVinFromBidCars() {
+  const extraBrowser = await chromium.launch({ 
+    headless: true,
+    args: ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--disable-setuid-sandbox']
+  });
+  
+  const ctx = await extraBrowser.newContext({
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    viewport: { width: 1920, height: 1080 }
+  });
+  
+  const page = await ctx.newPage();
+  console.log('🌐 Navigating to Bid.Cars...');
+  
+  try {
+    // Longer timeout and better wait condition for CI
+    await page.goto('https://bid.cars/en/search/results?search-type=filters&status=All&type=Automobile&make=All&model=All&year-from=1900&year-to=2027&auction-type=All', { 
+      waitUntil: 'domcontentloaded', 
+      timeout: 90000 
+    });
+    
+    await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
+    await page.waitForTimeout(5000); // Buffer for Cloudflare
+    
+    const vinPattern = /[A-HJ-NPR-Z0-9]{17}/;
+    const allText = await page.evaluate(() => document.body.innerText);
+    
+    if (allText.includes('Cloudflare') || allText.includes('Verify you are human')) {
+      console.log('⚠️ Cloudflare challenge detected, attempting to wait...');
+      await page.waitForTimeout(15000);
+    }
+    
+    const matches = (await page.evaluate(() => document.body.innerText)).match(new RegExp(vinPattern.source, 'g')) || [];
+    const vin = matches[0];
+    
+    if (!vin) {
+      await page.screenshot({ path: `${EVIDENCE_DIR}/bid-cars-blocked.png`, fullPage: true });
+      throw new Error('Could not extract VIN from Bid.Cars (possibly blocked by Cloudflare in CI)');
+    }
+    
+    console.log(`🔑 Retrieved VIN from Bid.Cars: ${vin}`);
+    return vin;
+  } finally {
+    await extraBrowser.close();
+  }
 }
 
 // ─── DRY: trigger exit intent ─────────────────────────────────────────────────
@@ -737,32 +790,15 @@ test.describe('P23 Cases', () => {
     console.log('✅ Sales History Record available text verified');
   });
 
-  test('P23 Case 12 - Verify Auction records', async ({ browser }) => {
-    const ctx = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    });
-    const page = await ctx.newPage();
-    await page.addInitScript(() => { Object.defineProperty(navigator, 'webdriver', { get: () => false }); });
+  test('P23 Case 12 - Verify Auction records', async ({ page }) => {
+    const vin = await getVinFromBidCars();
     
-    await page.goto('https://bid.cars/en/search/results?search-type=filters&status=All&type=Automobile&make=All&model=All&year-from=1900&year-to=2027&auction-type=All', { waitUntil: 'domcontentloaded' });
-    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    await page.goto(getVhrUrl(vin), { waitUntil: 'domcontentloaded' });
     
-    const vinPattern = /[A-HJ-NPR-Z0-9]{17}/;
-    const allText = await page.evaluate(() => document.body.innerText);
-    const matches = allText.match(new RegExp(vinPattern.source, 'g')) || [];
-    const vin = matches[0]; 
+    await page.waitForSelector('.text-lg, .text-xl, .text-2xl', { timeout: 60000 });
+    await page.waitForTimeout(2000); 
     
-    console.log(`🔑 Retrieved VIN from Bid.Cars: ${vin}`);
-    await ctx.close();
-    
-    if (!vin) throw new Error('Could not extract VIN from Bid.Cars');
-    
-    await sharedPage.goto(getVhrUrl(vin), { waitUntil: 'domcontentloaded' });
-    
-    await sharedPage.waitForSelector('.text-lg, .text-xl, .text-2xl', { timeout: 60000 });
-    await sharedPage.waitForTimeout(2000); 
-    
-    const pageContent = await sharedPage.textContent('body');
+    const pageContent = await page.textContent('body');
     const isVisible = pageContent.toLowerCase().includes('previously listed for sale') || 
                       pageContent.toLowerCase().includes('previously listed for auction');
     
@@ -796,7 +832,7 @@ test.describe('P27 Cases', () => {
     // Skip entire P27 block if detected page type is not '27'
     if (DETECTED_PAGE_TYPE !== '27') {
       console.log(`⏭️ Skipping P27 Cases - detected page type is ${DETECTED_PAGE_TYPE}, not 27`);
-      return;
+      test.skip();
     }
     console.log(`✅ Running P27 Cases - detected page type is 27`);
 
@@ -1117,24 +1153,8 @@ test.describe('P27 Cases', () => {
     console.log('✅ Window sticker dynamic text and price verified');
   });
 
-  test('P27 Case 12 - Verify Auction records', async ({ browser }) => {
-    const ctx = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    });
-    const page = await ctx.newPage();
-    await page.addInitScript(() => { Object.defineProperty(navigator, 'webdriver', { get: () => false }); });
-    
-    await page.goto('https://bid.cars/en/search/results?search-type=filters&status=All&type=Automobile&make=All&model=All&year-from=1900&year-to=2027&auction-type=All', { waitUntil: 'domcontentloaded' });
-    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
-    
-    const vinPattern = /[A-HJ-NPR-Z0-9]{17}/;
-    const allText = await page.evaluate(() => document.body.innerText);
-    const matches = allText.match(new RegExp(vinPattern.source, 'g')) || [];
-    const vin = matches[0]; 
-    
-    console.log(`🔑 Retrieved VIN from Bid.Cars: ${vin}`);
-    
-    if (!vin) { await ctx.close(); throw new Error('Could not extract VIN from Bid.Cars'); }
+  test('P27 Case 12 - Verify Auction records', async ({ page }) => {
+    const vin = await getVinFromBidCars();
     
     await page.goto(getVhrUrl(vin), { waitUntil: 'domcontentloaded' });
     
@@ -1147,7 +1167,6 @@ test.describe('P27 Cases', () => {
     
     expect(isVisible).toBe(true);
     console.log('✅ Auction/Sale Record available text verified');
-    await ctx.close();
   });
 });
 
@@ -1567,24 +1586,8 @@ test.describe('P28 Cases', () => {
     console.log('✅ Sales History Record available text verified');
   });
 
-  test('P28 Case 12 - Verify Auction records', async ({ browser }) => {
-    const ctx = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    });
-    const page = await ctx.newPage();
-    await page.addInitScript(() => { Object.defineProperty(navigator, 'webdriver', { get: () => false }); });
-    
-    await page.goto('https://bid.cars/en/search/results?search-type=filters&status=All&type=Automobile&make=All&model=All&year-from=1900&year-to=2027&auction-type=All', { waitUntil: 'domcontentloaded' });
-    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
-    
-    const vinPattern = /[A-HJ-NPR-Z0-9]{17}/;
-    const allText = await page.evaluate(() => document.body.innerText);
-    const matches = allText.match(new RegExp(vinPattern.source, 'g')) || [];
-    const vin = matches[0]; 
-    
-    console.log(`🔑 Retrieved VIN from Bid.Cars: ${vin}`);
-    
-    if (!vin) { await ctx.close(); throw new Error('Could not extract VIN from Bid.Cars'); }
+  test('P28 Case 12 - Verify Auction records', async ({ page }) => {
+    const vin = await getVinFromBidCars();
     
     await page.goto(getVhrUrl(vin), { waitUntil: 'domcontentloaded' });
     
@@ -1597,7 +1600,6 @@ test.describe('P28 Cases', () => {
     
     expect(isVisible).toBe(true);
     console.log('✅ Auction/Sale Record available text verified');
-    await ctx.close();
   });
 
   /*
@@ -1651,7 +1653,7 @@ test.describe('P28B Cases', () => {
     // Skip entire P28B block if detected page type is not '28_B'
     if (DETECTED_PAGE_TYPE !== '28_B') {
       console.log(`⏭️ Skipping P28B Cases - detected page type is ${DETECTED_PAGE_TYPE}, not 28_B`);
-      return;
+      test.skip();
     }
     console.log(`✅ Running P28B Cases - detected page type is 28_B`);
 
@@ -2034,32 +2036,15 @@ test.describe('P28B Cases', () => {
     console.log('✅ Sales History Record available text verified');
   });
 
-  test('P28B Case 12 - Verify Auction records', async ({ browser }) => {
-    const ctx = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    });
-    const page = await ctx.newPage();
-    await page.addInitScript(() => { Object.defineProperty(navigator, 'webdriver', { get: () => false }); });
+  test('P28B Case 12 - Verify Auction records', async ({ page }) => {
+    const vin = await getVinFromBidCars();
     
-    await page.goto('https://bid.cars/en/search/results?search-type=filters&status=All&type=Automobile&make=All&model=All&year-from=1900&year-to=2027&auction-type=All', { waitUntil: 'domcontentloaded' });
-    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    await page.goto(getVhrUrl(vin), { waitUntil: 'domcontentloaded' });
     
-    const vinPattern = /[A-HJ-NPR-Z0-9]{17}/;
-    const allText = await page.evaluate(() => document.body.innerText);
-    const matches = allText.match(new RegExp(vinPattern.source, 'g')) || [];
-    const vin = matches[0]; 
+    await page.waitForSelector('.text-lg, .text-xl, .text-2xl', { timeout: 60000 });
+    await page.waitForTimeout(2000); 
     
-    console.log(`🔑 Retrieved VIN from Bid.Cars: ${vin}`);
-    await ctx.close();
-    
-    if (!vin) throw new Error('Could not extract VIN from Bid.Cars');
-    
-    await sharedPage.goto(getVhrUrl(vin), { waitUntil: 'domcontentloaded' });
-    
-    await sharedPage.waitForSelector('.text-lg, .text-xl, .text-2xl', { timeout: 60000 });
-    await sharedPage.waitForTimeout(2000); 
-    
-    const pageContent = await sharedPage.textContent('body');
+    const pageContent = await page.textContent('body');
     const isVisible = pageContent.toLowerCase().includes('previously listed for sale') || 
                       pageContent.toLowerCase().includes('previously listed for auction');
     
