@@ -137,36 +137,46 @@ async function getVinFromBidCars() {
   const page = await ctx.newPage();
   console.log('🌐 Navigating to Bid.Cars...');
   
-  try {
-    // Longer timeout and better wait condition for CI
-    await page.goto('https://bid.cars/en/search/results?search-type=filters&status=All&type=Automobile&make=All&model=All&year-from=1900&year-to=2027&auction-type=All', { 
-      waitUntil: 'domcontentloaded', 
-      timeout: 90000 
-    });
-    
-    await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
-    await page.waitForTimeout(5000); // Buffer for Cloudflare
-    
-    const vinPattern = /[A-HJ-NPR-Z0-9]{17}/;
-    const allText = await page.evaluate(() => document.body.innerText);
-    
-    if (allText.includes('Cloudflare') || allText.includes('Verify you are human')) {
-      console.log('⚠️ Cloudflare challenge detected, attempting to wait...');
-      await page.waitForTimeout(15000);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      console.log(`🌐 Navigating to Bid.Cars (Attempt ${attempt}/3)...`);
+      await page.goto('https://bid.cars/en/search/results?search-type=filters&status=All&type=Automobile&make=All&model=All&year-from=1900&year-to=2027&auction-type=All', { 
+        waitUntil: 'domcontentloaded', 
+        timeout: 90000 
+      });
+      
+      await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
+      
+      // Human-like interaction to bypass basic bot detection
+      await page.mouse.move(100, 100);
+      await page.waitForTimeout(2000);
+      await page.mouse.wheel(0, 500);
+      await page.waitForTimeout(3000);
+      
+      const allText = await page.evaluate(() => document.body.innerText);
+      if (allText.includes('Cloudflare') || allText.includes('Verify you are human')) {
+        console.log('⚠️ Cloudflare challenge detected, waiting...');
+        await page.waitForTimeout(20000);
+      }
+      
+      const vinPattern = /[A-HJ-NPR-Z0-9]{17}/;
+      const matches = (await page.evaluate(() => document.body.innerText)).match(new RegExp(vinPattern.source, 'g')) || [];
+      const vin = matches[0];
+      
+      if (vin) {
+        console.log(`🔑 Retrieved VIN from Bid.Cars: ${vin}`);
+        return vin;
+      }
+      
+      throw new Error('VIN not found on page');
+    } catch (e) {
+      console.log(`❌ Attempt ${attempt} failed: ${e.message}`);
+      if (attempt === 3) {
+        await page.screenshot({ path: `${EVIDENCE_DIR}/bid-cars-blocked-final.png`, fullPage: true });
+        throw new Error('Could not extract VIN from Bid.Cars after 3 attempts');
+      }
+      await page.waitForTimeout(5000);
     }
-    
-    const matches = (await page.evaluate(() => document.body.innerText)).match(new RegExp(vinPattern.source, 'g')) || [];
-    const vin = matches[0];
-    
-    if (!vin) {
-      await page.screenshot({ path: `${EVIDENCE_DIR}/bid-cars-blocked.png`, fullPage: true });
-      throw new Error('Could not extract VIN from Bid.Cars (possibly blocked by Cloudflare in CI)');
-    }
-    
-    console.log(`🔑 Retrieved VIN from Bid.Cars: ${vin}`);
-    return vin;
-  } finally {
-    await extraBrowser.close();
   }
 }
 
@@ -2112,17 +2122,11 @@ test('Global Case 3 - Exit intent verification', async ({ browser }) => {
   await triggerExitIntent(page);
   
   // The site is auto-redirecting. Instead of forcing a click, check if the button is visible and handle the race condition.
-  try {
-    const ctaButton = page.locator('button[class*="exit-intent-primary-btn"]', { hasText: /Click here to redeem instantly/i });
-    if (await ctaButton.isVisible({ timeout: 5000 })) {
-      await ctaButton.click();
-      console.log('✅ Clicked CTA button');
-    } else {
-      console.log('ℹ️ Popup already handled by auto-navigation');
-    }
-  } catch (e) {
-    console.log('ℹ️ Popup interaction skipped due to auto-navigation');
-  }
+  // Handle exit intent popup
+  const ctaButton = page.getByRole('button', { name: /Click here to redeem instantly/i }).first();
+  await ctaButton.waitFor({ state: 'visible', timeout: 10000 });
+  await ctaButton.click({ force: true });
+  console.log('✅ Clicked exit intent CTA button using force');
 
   await page.waitForURL(/offer=/, { timeout: 30000 });
   
