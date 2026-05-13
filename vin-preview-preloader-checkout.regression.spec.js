@@ -2017,8 +2017,16 @@ test.describe('P28B Cases', () => {
     console.log(`🔑 Randomized EU VIN: ${randomizedEuVin}`);
     await sharedPage.goto(url, { waitUntil: 'domcontentloaded' });
     
-    await sharedPage.getByRole('button', { name: 'Yes' }).click();
-    await sharedPage.waitForURL(/\/members\/vin-check\/preview/, { timeout: 30000 });
+    // Add wait for Yes button to be visible and clickable
+    const yesButton = sharedPage.getByRole('button', { name: 'Yes' });
+    await yesButton.waitFor({ state: 'visible', timeout: 15000 });
+    
+    // Perform click and wait for navigation as a single atomic operation
+    await Promise.all([
+        sharedPage.waitForURL(/\/members\/vin-check\/preview/, { timeout: 30000 }),
+        yesButton.click()
+    ]);
+    
     await sharedPage.waitForTimeout(2000);
     console.log('✅ EU VIN confirmed (Yes flow)');
   });
@@ -2226,6 +2234,54 @@ test('Global Case 10 - WS search redirects with timing', async ({ page }) => {
   });
   
   console.log(`⏱ Decode time with window sticker (17 character): ${elapsed}s`);
+  
+  await page.close();
+});
+
+test('Global Case 11 - EU Confirmation flow from homepage', async ({ page }) => {
+  const t0 = Date.now();
+  const EU_BASE_VIN = 'WAUZZZ8P6CA083445';
+  function randomEuVin(base) {
+    const nums = '0123456789';
+    return base.slice(0, -1) + nums[Math.floor(Math.random() * nums.length)];
+  }
+  const randomizedEuVin = randomEuVin(EU_BASE_VIN);
+
+  await page.goto(SITE_URL, { waitUntil: 'domcontentloaded' });
+  
+  await page.getByRole('textbox', { name: 'Enter VIN' }).fill(randomizedEuVin);
+  await page.getByRole('button', { name: 'Search VIN' }).click();
+
+  // Confirmation page handling
+  await page.getByRole('button', { name: 'No' }).click();
+  
+  await page.getByRole('combobox').filter({ hasText: 'Select Year' }).click();
+  await page.getByRole('textbox', { name: 'Search...' }).fill('2015');
+  await page.getByRole('button', { name: '2015' }).click();
+  
+  await page.getByRole('combobox').filter({ hasText: 'Select Make' }).click();
+  await page.getByRole('button', { name: 'Alfa Romeo' }).click();
+  
+  await page.getByRole('combobox').filter({ hasText: 'Select Model' }).click();
+  await page.getByRole('button', { name: 'Giulietta II' }).click();
+  
+  await page.getByRole('combobox').filter({ hasText: 'Select Trim' }).click();
+  await page.getByRole('button', { name: '1.4 GLP Turbo 120HP' }).click();
+  
+  await page.getByRole('button', { name: 'Update Vehicle Details' }).click();
+  
+  // Verify redirect to preview page
+  await page.waitForURL(/preview/, { timeout: 30000 });
+  const t1 = Date.now();
+  const elapsed = ((t1 - t0) / 1000).toFixed(2);
+  
+  test.info().annotations.push({ 
+    type: 'EU Confirmation flow duration', 
+    description: `${elapsed}s` 
+  });
+  
+  console.log(`⏱ EU Confirmation flow duration: ${elapsed}s`);
+  console.log('✅ EU Confirmation flow completed: Redirected to preview page');
   
   await page.close();
 });
